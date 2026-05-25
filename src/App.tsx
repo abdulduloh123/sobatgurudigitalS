@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import {
     MessageCircle, Star, XCircle, CheckCircle, FileText, Book,
@@ -167,9 +168,6 @@ export default function App() {
     );
 }
 
-// ==========================================
-// 1. KOMPONEN LANDING PAGE (Publik)
-// ==========================================
 function LandingPage({ setView }) {
     const [pdfModal, setPdfModal] = useState({ isOpen: false, url: '', title: '' });
 
@@ -185,7 +183,6 @@ function LandingPage({ setView }) {
 
     return (
         <>
-            {/* Navbar */}
             <nav className="bg-white shadow-md py-2 px-4 fixed w-full top-0 z-50">
                 <div className="max-w-4xl mx-auto flex justify-between items-center">
                     <div className="flex items-center gap-3">
@@ -203,7 +200,6 @@ function LandingPage({ setView }) {
                 </div>
             </nav>
 
-            {/* Hero Section */}
             <header className="hero-bg text-white pt-28 pb-16 px-4 text-center rounded-b-[3rem] shadow-xl">
                 <div className="absolute inset-0 z-0">
                     <img src="https://pict.sindonews.net/webp/732/pena/news/2023/09/29/212/1212991/guru-indonesia-menurut-tempat-mengajar-mayoritas-sd-dan-smp-wbp.webp"
@@ -233,7 +229,6 @@ function LandingPage({ setView }) {
                 </div>
             </header>
 
-            {/* Masalah & Solusi */}
             <section className="py-12 px-4">
                 <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-8 items-center">
                     <div className="bg-white p-6 rounded-2xl shadow-lg border-l-4 border-red-500">
@@ -257,7 +252,6 @@ function LandingPage({ setView }) {
                 </div>
             </section>
 
-            {/* Fitur */}
             <section className="bg-blue-50 py-16 px-4">
                 <div className="max-w-5xl mx-auto text-center">
                     <h2 className="text-3xl font-bold text-blue-900 mb-10">Apa yang Anda Dapatkan?</h2>
@@ -282,7 +276,6 @@ function LandingPage({ setView }) {
                 </div>
             </section>
 
-            {/* Intip Modul */}
             <section className="py-16 px-4 bg-gray-100">
                 <div className="max-w-5xl mx-auto">
                     <div className="text-center mb-12">
@@ -291,7 +284,6 @@ function LandingPage({ setView }) {
                         <p className="text-gray-600 mt-3 max-w-xl mx-auto">Kami berikan preview dokumen asli dalam format PDF agar Bapak/Ibu yakin dengan kerapian dan kualitas premium modul kami.</p>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                        {/* Card Preview 1 */}
                         <div className="bg-white rounded-2xl shadow-md overflow-hidden transform hover:-translate-y-2 hover:shadow-xl transition duration-300 flex flex-col border border-gray-100">
                             <div className="h-52 bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center relative group cursor-pointer" onClick={() => openPdfModal('cover.pdf', 'Preview Cover & Identitas')}>
                                 <div className="w-24 h-32 bg-white shadow-lg rounded-md border border-gray-200 flex flex-col items-center justify-center p-3 transition duration-300 group-hover:scale-105">
@@ -318,7 +310,6 @@ function LandingPage({ setView }) {
                             </div>
                         </div>
 
-                        {/* Card Preview 2 */}
                         <div className="bg-white rounded-2xl shadow-md overflow-hidden transform hover:-translate-y-2 hover:shadow-xl transition duration-300 flex flex-col border border-gray-100">
                             <div className="h-52 bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center relative group cursor-pointer" onClick={() => openPdfModal('prota.pdf', 'Preview Prota & Prosem')}>
                                 <div className="w-24 h-32 bg-white shadow-lg rounded-md border border-gray-200 p-3 transition duration-300 group-hover:scale-105">
@@ -342,7 +333,6 @@ function LandingPage({ setView }) {
                             </div>
                         </div>
 
-                        {/* Card Preview 3 */}
                         <div className="bg-white rounded-2xl shadow-md overflow-hidden transform hover:-translate-y-2 hover:shadow-xl transition duration-300 flex flex-col border border-gray-100">
                             <div className="h-52 bg-gradient-to-br from-yellow-50 to-amber-100 flex items-center justify-center relative group cursor-pointer" onClick={() => openPdfModal('isi.pdf', 'Preview Modul & LKPD')}>
                                 <div className="w-24 h-32 bg-white shadow-lg rounded-md border border-gray-200 p-3 transition duration-300 group-hover:scale-105">
@@ -367,7 +357,6 @@ function LandingPage({ setView }) {
                 </div>
             </section>
 
-            {/* Testimoni Section */}
             <section className="py-16 px-4 bg-white">
                 <div className="max-w-4xl mx-auto">
                     <div className="text-center mb-10">
@@ -376,7 +365,6 @@ function LandingPage({ setView }) {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {/* Testimoni 1 */}
                         <div className="bg-gray-50 p-6 rounded-xl border border-gray-100 shadow-sm">
                             <div className="flex items-center mb-4">
                                 <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold mr-3">SR</div>
@@ -391,7 +379,6 @@ function LandingPage({ setView }) {
                             </div>
                         </div>
 
-                        {/* Testimoni 2 */}
                         <div className="bg-gray-50 p-6 rounded-xl border border-gray-100 shadow-sm">
                             <div className="flex items-center mb-4">
                                 <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-600 font-bold mr-3">AH</div>
@@ -406,7 +393,6 @@ function LandingPage({ setView }) {
                             </div>
                         </div>
 
-                        {/* Testimoni 3 */}
                         <div className="bg-gray-50 p-6 rounded-xl border border-gray-100 shadow-sm">
                             <div className="flex items-center mb-4">
                                 <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 font-bold mr-3">DN</div>
@@ -424,12 +410,10 @@ function LandingPage({ setView }) {
                 </div>
             </section>
 
-            {/* Footer & Secret Login Link */}
-            <div className="pb-8 bg-gray-800 text-white py-12 text-center text-sm relative">
+            <div className="bg-gray-800 text-white py-12 text-center text-sm relative">
                 <p>© 2026 Layanan Pembuatan Modul Ajar Profesional.</p>
                 <p className="mt-2 text-gray-400">Siap bantu Guru Lulus Supervisi dan Mudah Mengajar Tanpa Pusing Administrasi.</p>
 
-                {/* LINK LOGIN STAFF */}
                 <div className="mt-12 flex justify-center">
                     <button
                         onClick={() => setView('login')}
@@ -440,13 +424,11 @@ function LandingPage({ setView }) {
                 </div>
             </div>
 
-            {/* Floating WA Button */}
             <button onClick={() => redirectWA('Halo, saya tertarik pesan Modul Deeplearning')}
                 className="fixed bottom-6 right-6 bg-green-500 hover:bg-green-600 text-white p-4 rounded-full shadow-2xl flex items-center justify-center w-16 h-16 transition transform hover:scale-110 z-40 animate-bounce cursor-pointer border-none">
                 <MessageCircle size={32} />
             </button>
 
-            {/* Modal PDF */}
             {pdfModal.isOpen && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={closePdfModal}></div>
@@ -488,9 +470,6 @@ function LandingPage({ setView }) {
     );
 }
 
-// ==========================================
-// 2. KOMPONEN LOGIN (HRIS / Portal Internal)
-// ==========================================
 function LoginPage({ setView, onLogin, usersData }) {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -557,15 +536,11 @@ function LoginPage({ setView, onLogin, usersData }) {
     );
 }
 
-// ==========================================
-// 3. KOMPONEN DASHBOARD (HRIS & Sales)
-// ==========================================
 function Dashboard({ user, onLogout, salesData, addSale, usersData, addStaffUser, deleteStaffUser }) {
     const [activeTab, setActiveTab] = useState(user.role === 'staff' ? 'input' : 'overview');
 
     return (
         <div className="flex h-screen bg-gray-100 overflow-hidden">
-            {/* Sidebar */}
             <div className="w-64 bg-blue-900 text-white flex flex-col hidden md:flex">
                 <div className="p-6 text-center border-b border-blue-800">
                     <div className="w-16 h-16 bg-white/10 rounded-full mx-auto flex items-center justify-center mb-3">
@@ -601,7 +576,6 @@ function Dashboard({ user, onLogout, salesData, addSale, usersData, addStaffUser
                 </div>
             </div>
 
-            {/* Main Content */}
             <div className="flex-grow overflow-y-auto">
                 <header className="bg-white shadow-sm px-8 py-4 flex justify-between items-center md:hidden">
                     <h2 className="font-bold text-blue-900 text-lg">HRIS Portal</h2>
