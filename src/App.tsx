@@ -445,7 +445,7 @@ function LandingPage({ setView }) {
                                 </div>
                             </div>
                             <button onClick={closePdfModal} className="hover:bg-white/20 p-2 rounded-full transition">
-                                XCircle size={20} />
+                                <XCircle size={20} />
                             </button>
                         </div>
                         <div className="flex-grow bg-gray-50 flex flex-col">
