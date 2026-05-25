@@ -11,28 +11,21 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc } from 'firebase/firestore';
 
-// 1. Inisialisasi Cloud Database (Firebase)
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+// 1. Inisialisasi Cloud Database Resmi Sobat Guru Digital
 const firebaseConfig = {
   apiKey: "AIzaSyDoPPfpC_2Ftry_czzchHCSBabhuBbFwVY",
   authDomain: "sobatguru-digital.firebaseapp.com",
   projectId: "sobatguru-digital",
   storageBucket: "sobatguru-digital.firebasestorage.app",
   messagingSenderId: "1070589838471",
-  appId: "1:1070589838471:web:230f0eac698a0454096422",
-  measurementId: "G-1WD4HLCZFD"
+  appId: "1:1070589838471:web:238f0eac698a0454096422",
+  measurementId: "G-1MD4HLCZFD"
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = firebaseConfig.projectId; 
 
 export default function App() {
     const [currentView, setCurrentView] = useState('landing');
@@ -452,7 +445,7 @@ function LandingPage({ setView }) {
                                 </div>
                             </div>
                             <button onClick={closePdfModal} className="hover:bg-white/20 p-2 rounded-full transition">
-                                <XCircle size={20} />
+                                XCircle size={20} />
                             </button>
                         </div>
                         <div className="flex-grow bg-gray-50 flex flex-col">
@@ -991,11 +984,11 @@ function CommissionReport({ salesData }) {
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-wrap gap-4 items-end">
                 <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">Dari Tanggal</label>
-                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full border-gray-300 border px-3 py-2 rounded-lg text-sm" />
+                    <input type="date" value={startDate} onChange={e => setStartDate(setStartDate)} className="w-full border-gray-300 border px-3 py-2 rounded-lg text-sm" />
                 </div>
                 <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">Sampai Tanggal</label>
-                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full border-gray-300 border px-3 py-2 rounded-lg text-sm" />
+                    <input type="date" value={endDate} onChange={e => setEndDate(setEndDate)} className="w-full border-gray-300 border px-3 py-2 rounded-lg text-sm" />
                 </div>
                 <div className="ml-auto bg-green-50 px-4 py-2 rounded-lg border border-green-100">
                     <span className="text-xs text-green-700 font-semibold block">Estimasi Total Payout:</span>
