@@ -12,16 +12,27 @@ import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged }
 import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc } from 'firebase/firestore';
 
 // 1. Inisialisasi Cloud Database (Firebase)
-let app, auth, db, appId;
-try {
-    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-    appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-} catch (e) {
-    console.warn('Sistem berjalan tanpa koneksi Cloud Database.');
-}
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyDoPPfpC_2Ftry_czzchHCSBabhuBbFwVY",
+  authDomain: "sobatguru-digital.firebaseapp.com",
+  projectId: "sobatguru-digital",
+  storageBucket: "sobatguru-digital.firebasestorage.app",
+  messagingSenderId: "1070589838471",
+  appId: "1:1070589838471:web:230f0eac698a0454096422",
+  measurementId: "G-1WD4HLCZFD"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
 
 export default function App() {
     const [currentView, setCurrentView] = useState('landing');
