@@ -6,11 +6,11 @@ import {
     Lock, LayoutDashboard, LogOut, PlusCircle,
     DollarSign, TrendingUp, User, ShoppingBag, ArrowRight,
     Users, Trash2, Key, Award, Search, Filter, BarChart3, PieChart,
-    Download, ChevronDown, ChevronUp, Package, Trophy
+    Download, ChevronDown, ChevronUp, Package, Trophy, Menu, Clock
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, setDoc } from 'firebase/firestore';
 
 // 1. Inisialisasi Cloud Database Resmi Sobat Guru Digital
 const firebaseConfig = {
@@ -37,6 +37,20 @@ export default function App() {
     const [usersData, setUsersData] = useState([]);
     const [catalogData, setCatalogData] = useState([]);
     const [expensesData, setExpensesData] = useState([]);
+    const [previewsData, setPreviewsData] = useState([]);
+    const [payoutsData, setPayoutsData] = useState([]);
+
+    // Custom UI Alert & Confirm States (Solusi Iframe CSP)
+    const [alertConfig, setAlertConfig] = useState({ isOpen: false, title: '', message: '', type: 'info' });
+    const [confirmConfig, setConfirmConfig] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
+
+    const showAlert = (message, title = 'Notifikasi', type = 'info') => {
+        setAlertConfig({ isOpen: true, title, message, type });
+    };
+
+    const showConfirm = (message, onConfirm, title = 'Konfirmasi Tindakan') => {
+        setConfirmConfig({ isOpen: true, title, message, onConfirm });
+    };
 
     // Menyimpan Session Cache Login
     useEffect(() => {
@@ -99,11 +113,28 @@ export default function App() {
             setExpensesData(fetchedExpenses);
         }, (error) => console.error("Firestore error:", error));
 
+        // Listener: previewsData
+        const previewsRef = collection(db, 'artifacts', appId, 'public', 'data', 'previewsData');
+        const unsubscribePreviews = onSnapshot(previewsRef, (snapshot) => {
+            const fetchedPreviews = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setPreviewsData(fetchedPreviews);
+        }, (error) => console.error("Previews Firestore error:", error));
+
+        // Listener: payoutsData
+        const payoutsRef = collection(db, 'artifacts', appId, 'public', 'data', 'payoutsData');
+        const unsubscribePayouts = onSnapshot(payoutsRef, (snapshot) => {
+            const fetchedPayouts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            fetchedPayouts.sort((a, b) => new Date(b.payoutDate) - new Date(a.payoutDate));
+            setPayoutsData(fetchedPayouts);
+        }, (error) => console.error("Payouts Firestore error:", error));
+
         return () => {
             unsubscribeSales();
             unsubscribeUsers();
             unsubscribeCatalog();
             unsubscribeExpenses();
+            unsubscribePreviews();
+            unsubscribePayouts();
         };
     }, [firebaseUser]);
 
@@ -138,61 +169,81 @@ export default function App() {
     };
 
     const addSale = async (newSale) => {
-        if (!db) return alert("Sistem offline!");
-        try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'salesData'), newSale); }
-        catch (error) { alert("Gagal menyimpan data!"); }
-    };
-    const updateSale = async (saleId, updatedData) => {
-        try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salesData', saleId), updatedData); alert("Data Diperbarui!"); }
-        catch (error) { alert("Gagal memperbarui!"); }
-    };
-    const deleteSale = async (saleId) => {
-        if (window.confirm("Yakin hapus data ini permanen?")) {
-            try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salesData', saleId)); }
-            catch (error) { alert("Gagal menghapus!"); }
+        if (!db) return showAlert("Sistem offline!", "Error", "error");
+        try { 
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'salesData'), {
+                ...newSale,
+                paymentStatus: 'unpaid'
+            }); 
+            showAlert("Closingan berhasil disimpan!", "Sukses", "success");
         }
+        catch (error) { showAlert("Gagal menyimpan data!", "Error", "error"); }
+    };
+
+    const updateSale = async (saleId, updatedData) => {
+        try { 
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salesData', saleId), updatedData); 
+            showAlert("Data Diperbarui!", "Sukses", "success"); 
+        }
+        catch (error) { showAlert("Gagal memperbarui!", "Error", "error"); }
+    };
+
+    const deleteSale = async (saleId) => {
+        try { 
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salesData', saleId)); 
+            showAlert("Transaksi berhasil dihapus!", "Sukses", "success");
+        }
+        catch (error) { showAlert("Gagal menghapus!", "Error", "error"); }
     };
 
     const addStaffUser = async (newUser) => {
-        try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'usersData'), newUser); alert("Staff ditambahkan!"); }
-        catch (error) { alert("Gagal menambah staff!"); }
+        try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'usersData'), newUser); showAlert("Staff ditambahkan!", "Sukses", "success"); }
+        catch (error) { showAlert("Gagal menambah staff!", "Error", "error"); }
     };
+
     const deleteStaffUser = async (userId) => {
-        if (window.confirm("Yakin hapus staff ini?")) {
-            try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'usersData', userId)); }
-            catch (error) { alert("Gagal menghapus!"); }
+        try { 
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'usersData', userId)); 
+            showAlert("Akun staff berhasil dihapus!", "Sukses", "success");
         }
+        catch (error) { showAlert("Gagal menghapus!", "Error", "error"); }
     };
 
     const addProduct = async (newProduct) => {
-        try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'catalogData'), newProduct); alert("Produk ditambahkan ke katalog!"); }
-        catch (error) { alert("Gagal menambah produk!"); }
+        try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'catalogData'), newProduct); showAlert("Produk ditambahkan ke katalog!", "Sukses", "success"); }
+        catch (error) { showAlert("Gagal menambah produk!", "Error", "error"); }
     };
+
     const updateProduct = async (prodId, updatedData) => {
-        try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'catalogData', prodId), updatedData); alert("Katalog Diperbarui!"); }
-        catch (error) { alert("Gagal memperbarui katalog!"); }
+        try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'catalogData', prodId), updatedData); showAlert("Katalog Diperbarui!", "Sukses", "success"); }
+        catch (error) { showAlert("Gagal memperbarui katalog!", "Error", "error"); }
     };
+
     const deleteProduct = async (prodId) => {
-        if (window.confirm("Yakin hapus produk ini dari halaman depan?")) {
-            try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'catalogData', prodId)); }
-            catch (error) { alert("Gagal menghapus produk!"); }
+        try { 
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'catalogData', prodId)); 
+            showAlert("Produk berhasil dihapus!", "Sukses", "success");
         }
+        catch (error) { showAlert("Gagal menghapus produk!", "Error", "error"); }
     };
 
     const addExpense = async (newExpense) => {
-        if (!db) return alert("Sistem offline!");
-        try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'expensesData'), newExpense); alert("Pengeluaran berhasil ditambahkan!"); }
-        catch (error) { alert("Gagal menyimpan pengeluaran!"); }
+        if (!db) return showAlert("Sistem offline!", "Error", "error");
+        try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'expensesData'), newExpense); showAlert("Pengeluaran berhasil ditambahkan!", "Sukses", "success"); }
+        catch (error) { showAlert("Gagal menyimpan pengeluaran!", "Error", "error"); }
     };
+
     const updateExpense = async (expenseId, updatedData) => {
-        try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'expensesData', expenseId), updatedData); alert("Pengeluaran diperbarui!"); }
-        catch (error) { alert("Gagal memperbarui pengeluaran!"); }
+        try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'expensesData', expenseId), updatedData); showAlert("Pengeluaran diperbarui!", "Sukses", "success"); }
+        catch (error) { showAlert("Gagal memperbarui pengeluaran!", "Error", "error"); }
     };
+
     const deleteExpense = async (expenseId) => {
-        if (window.confirm("Yakin hapus pengeluaran ini?")) {
-            try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'expensesData', expenseId)); }
-            catch (error) { alert("Gagal menghapus pengeluaran!"); }
+        try { 
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'expensesData', expenseId)); 
+            showAlert("Pengeluaran berhasil dihapus!", "Sukses", "success");
         }
+        catch (error) { showAlert("Gagal menghapus pengeluaran!", "Error", "error"); }
     };
 
     const addLead = async (leadData) => {
@@ -200,9 +251,58 @@ export default function App() {
         catch (error) { console.error(error); }
     };
 
+    const updatePreview = async (slotId, updatedData) => {
+        try {
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'previewsData', slotId), {
+                ...updatedData,
+                slot: slotId
+            });
+            showAlert(`Pratinjau ${slotId} berhasil diperbarui!`, 'Sukses', 'success');
+        } catch (error) {
+            showAlert("Gagal memperbarui pratinjau!", "Error", "error");
+        }
+    };
+
+    const payStaffCommission = async (staffName, startDate, endDate, totalAmount, salesToUpdate) => {
+        if (salesToUpdate.length === 0) {
+            showAlert("Tidak ada komisi belum dibayar pada periode tersebut!", "Peringatan", "warning");
+            return;
+        }
+        try {
+            const payoutRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'payoutsData'), {
+                staffName,
+                startDate,
+                endDate,
+                amount: totalAmount,
+                payoutDate: new Date().toISOString().split('T')[0]
+            });
+
+            const updatePromises = salesToUpdate.map(sale =>
+                updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salesData', sale.id), {
+                    paymentStatus: 'paid',
+                    payoutId: payoutRef.id,
+                    payoutDate: new Date().toISOString().split('T')[0]
+                })
+            );
+            await Promise.all(updatePromises);
+            showAlert(`Berhasil melunasi komisi ${staffName} sebesar Rp ${totalAmount.toLocaleString('id-ID')}!`, "Sukses", "success");
+        } catch (error) {
+            console.error("Payout error:", error);
+            showAlert("Gagal memproses pembayaran komisi!", "Error", "error");
+        }
+    };
+
     return (
         <div className="min-h-screen bg-gray-50 text-gray-800">
-            {currentView === 'landing' && <LandingPage setView={setCurrentView} catalogData={catalogData} addLead={addLead} />}
+            {currentView === 'landing' && (
+                <LandingPage 
+                    setView={setCurrentView} 
+                    catalogData={catalogData} 
+                    addLead={addLead} 
+                    previewsData={previewsData}
+                    showAlert={showAlert}
+                />
+            )}
             {currentView === 'login' && <LoginPage setView={setCurrentView} onLogin={handleLogin} usersData={usersData} />}
             {currentView === 'dashboard' && currentUser && (
                 <Dashboard
@@ -223,7 +323,74 @@ export default function App() {
                     addExpense={addExpense}
                     updateExpense={updateExpense}
                     deleteExpense={deleteExpense}
+                    previewsData={previewsData}
+                    payoutsData={payoutsData}
+                    updatePreview={updatePreview}
+                    payStaffCommission={payStaffCommission}
+                    showAlert={showAlert}
+                    showConfirm={showConfirm}
                 />
+            )}
+
+            {/* CUSTOM ALERT MODAL */}
+            {alertConfig.isOpen && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setAlertConfig(prev => ({ ...prev, isOpen: false }))}></div>
+                    <div className="relative bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6 z-10 animate-in zoom-in-95">
+                        <div className="text-center space-y-3">
+                            <div className="mx-auto w-12 h-12 flex items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                                {alertConfig.type === 'success' ? (
+                                    <CheckCircle size={28} className="text-green-500" />
+                                ) : alertConfig.type === 'error' ? (
+                                    <XCircle size={28} className="text-red-500" />
+                                ) : (
+                                    <Info size={28} className="text-blue-500" />
+                                )}
+                            </div>
+                            <h3 className="text-lg font-bold text-gray-900">{alertConfig.title}</h3>
+                            <p className="text-sm text-gray-500">{alertConfig.message}</p>
+                        </div>
+                        <button
+                            onClick={() => setAlertConfig(prev => ({ ...prev, isOpen: false }))}
+                            className="mt-6 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-sm transition"
+                        >
+                            OK
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* CUSTOM CONFIRM MODAL */}
+            {confirmConfig.isOpen && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}></div>
+                    <div className="relative bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6 z-10 animate-in zoom-in-95">
+                        <div className="text-center space-y-3">
+                            <div className="mx-auto w-12 h-12 flex items-center justify-center rounded-full bg-amber-50 text-amber-600">
+                                <Info size={28} />
+                            </div>
+                            <h3 className="text-lg font-bold text-gray-900">{confirmConfig.title}</h3>
+                            <p className="text-sm text-gray-500">{confirmConfig.message}</p>
+                        </div>
+                        <div className="mt-6 flex gap-3">
+                            <button
+                                onClick={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+                                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-750 font-bold py-2.5 rounded-xl text-sm transition"
+                            >
+                                Batal
+                            </button>
+                            <button
+                                onClick={() => {
+                                    if (confirmConfig.onConfirm) confirmConfig.onConfirm();
+                                    setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+                                }}
+                                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded-xl text-sm transition"
+                            >
+                                Ya, Lanjutkan
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );
@@ -231,12 +398,39 @@ export default function App() {
 
 // ---------------------- HALAMAN PUBLIK ----------------------
 
-function LandingPage({ setView, catalogData, addLead }) {
-    // 100% MENYIMPAN STATE ASLI + TAMBAHAN MODAL LEAD DAN FAQ
+function LandingPage({ setView, catalogData, addLead, previewsData, showAlert }) {
     const [pdfModal, setPdfModal] = useState({ isOpen: false, url: '', title: '' });
     const [leadModal, setLeadModal] = useState(false);
     const [leadForm, setLeadForm] = useState({ name: '', phone: '' });
     const [openFaq, setOpenFaq] = useState(null);
+
+    const getPreviewSlot = (slotKey) => {
+        const found = previewsData.find(p => p.id === slotKey || p.slot === slotKey);
+        if (found) return found;
+
+        const defaults = {
+            cover: {
+                title: "Cover & Identitas",
+                desc: "Desain rapi, terstruktur, tinggal ganti nama guru & sekolah.",
+                url: "cover.pdf"
+            },
+            prota: {
+                title: "Prota & Prosem",
+                desc: "Otomatis menghitung pekan efektif & JP.",
+                url: "prota.pdf"
+            },
+            isi: {
+                title: "Modul Ajar & LKPD",
+                desc: "Langkah pembelajaran terperinci.",
+                url: "isi.pdf"
+            }
+        };
+        return defaults[slotKey];
+    };
+
+    const slotCover = getPreviewSlot('cover');
+    const slotProta = getPreviewSlot('prota');
+    const slotIsi = getPreviewSlot('isi');
 
     const redirectWA = (customMessage) => {
         const waNumbers = ['+6287781601968', '+6287822186229', '+6285724043082'];
@@ -252,7 +446,7 @@ function LandingPage({ setView, catalogData, addLead }) {
         e.preventDefault();
         addLead({ ...leadForm, date: new Date().toISOString() });
         setLeadModal(false);
-        alert("Terima kasih! Link sampel modul telah kami kirimkan ke WhatsApp Anda (Simulasi).");
+        showAlert("Terima kasih! Link sampel modul telah kami kirimkan ke WhatsApp Anda (Simulasi).", "Sukses", "success");
         setLeadForm({ name: '', phone: '' });
     };
 
@@ -303,26 +497,24 @@ function LandingPage({ setView, catalogData, addLead }) {
                         <span className="text-sm font-medium">Dipercaya 7.400+ Guru Indonesia</span>
                     </div>
                     <br />
-                    {/* BAGIAN TOMBOL DIPERBARUI AGAR BISA UNDUH SAMPEL TANPA MENGUBAH DESAIN LAMA */}
                     <div className="flex flex-col sm:flex-row justify-center items-center gap-4">
                         <button onClick={() => redirectWA('Halo Admin, saya mau order Modul Deeplearning')}
-                            className="cta-pulse bg-yellow-500 hover:bg-yellow-400 text-blue-900 font-bold py-4 px-8 rounded-full text-xl shadow-lg transition transform hover:scale-105 inline-flex items-center cursor-pointer border-none">
+                            className="cta-pulse w-full sm:w-auto bg-yellow-500 hover:bg-yellow-400 text-blue-900 font-bold py-4 px-8 rounded-full text-xl shadow-lg transition transform hover:scale-105 inline-flex items-center justify-center cursor-pointer border-none">
                             <MessageCircle size={24} className="mr-2" /> HUBUNGI KAMI SEKARANG
                         </button>
                         <button onClick={() => setLeadModal(true)}
-                            className="bg-white/20 hover:bg-white/30 backdrop-blur text-white border border-white/40 font-bold py-4 px-8 rounded-full text-xl shadow-lg transition transform hover:scale-105 inline-flex items-center cursor-pointer">
+                            className="w-full sm:w-auto bg-white/20 hover:bg-white/30 backdrop-blur text-white border border-white/40 font-bold py-4 px-8 rounded-full text-xl shadow-lg transition transform hover:scale-105 inline-flex items-center justify-center cursor-pointer">
                             <Download size={24} className="mr-2" /> Unduh Sampel Gratis
                         </button>
                     </div>
                 </div>
             </header>
 
-            {/* SEKSI MASALAH GURU - 100% ASLI DARI PROMPT PERTAMA */}
             <section className="py-12 px-4">
                 <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-8 items-center">
                     <div className="bg-white p-6 rounded-2xl shadow-lg border-l-4 border-red-500">
                         <h3 className="text-xl font-bold text-red-600 mb-3 flex items-center"><XCircle size={20} className="mr-2" /> Masalah Guru Saat Ini:</h3>
-                        <ul className="space-y-2 text-gray-600">
+                        <ul className="space-y-2 text-gray-600 font-medium">
                             <li>• Bingung menyusun modul sesuai CP 046?</li>
                             <li>• Takut tidak lulus validasi Supervisi dan UKIN PPG?</li>
                             <li>• Waktu habis hanya untuk administrasi?</li>
@@ -331,7 +523,7 @@ function LandingPage({ setView, catalogData, addLead }) {
                     </div>
                     <div className="bg-white p-6 rounded-2xl shadow-lg border-l-4 border-green-500">
                         <h3 className="text-xl font-bold text-green-600 mb-3 flex items-center"><CheckCircle size={20} className="mr-2" /> Solusi Kami:</h3>
-                        <ul className="space-y-2 text-gray-600">
+                        <ul className="space-y-2 text-gray-600 font-medium">
                             <li>• <strong>Modul Siap Pakai</strong> tinggal edit identitas.</li>
                             <li>• Disusun oleh ahli kurikulum berpengalaman.</li>
                             <li>• <strong>Lengkap!</strong> Prota, Prosem, LKPD, ATP.</li>
@@ -341,11 +533,10 @@ function LandingPage({ setView, catalogData, addLead }) {
                 </div>
             </section>
 
-            {/* SEKSI APA YANG ANDA DAPATKAN - 100% ASLI DARI PROMPT PERTAMA */}
             <section className="bg-blue-50 py-16 px-4">
                 <div className="max-w-5xl mx-auto text-center">
                     <h2 className="text-3xl font-bold text-blue-900 mb-10">Apa yang Anda Dapatkan?</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
                         {[
                             { icon: <FileText size={24} />, title: 'Paket Lengkap', desc: 'Termasuk Prota, Prosem, LKPD, ATP, dan Modul Ajar terstruktur.' },
                             { icon: <Book size={24} />, title: 'CP & KMA Terbaru', desc: 'Mengacu pada CP 046 dan KMA 3302. Relevan untuk PPG 2025.' },
@@ -366,14 +557,13 @@ function LandingPage({ setView, catalogData, addLead }) {
                 </div>
             </section>
 
-            {/* SEKSI BARU: KATALOG PRODUK DINAMIS DARI ADMIN */}
             <section className="py-16 px-4 bg-white">
                 <div className="max-w-5xl mx-auto">
                     <div className="text-center mb-12">
                         <span className="text-blue-600 font-bold text-sm tracking-widest uppercase bg-blue-100 px-3 py-1 rounded-full">Katalog Produk</span>
                         <h2 className="text-3xl md:text-4xl font-extrabold text-gray-800 mt-3">Pilihan Paket Modul Ajar</h2>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                         {(catalogData.length > 0 ? catalogData : [
                             { id: 1, name: "Modul Lengkap SD", jenjang: "SD/MI", desc: "Kelas 1-6 Lengkap Prota, Prosem, LKPD, ATP", price: 150000 },
                             { id: 2, name: "Modul Lengkap SMP", jenjang: "SMP/MTs", desc: "Kelas 7-9 Lengkap dengan Rubrik Penilaian", price: 150000 }
@@ -399,7 +589,6 @@ function LandingPage({ setView, catalogData, addLead }) {
                 </div>
             </section>
 
-            {/* SEKSI INTIP PDF - 100% ASLI DARI PROMPT PERTAMA */}
             <section className="py-16 px-4 bg-gray-100">
                 <div className="max-w-5xl mx-auto">
                     <div className="text-center mb-12">
@@ -407,9 +596,9 @@ function LandingPage({ setView, catalogData, addLead }) {
                         <h2 className="text-3xl md:text-4xl font-extrabold text-gray-800 mt-3">Intip Kerapian Modul Kami</h2>
                         <p className="text-gray-600 mt-3 max-w-xl mx-auto">Kami berikan preview dokumen asli dalam format PDF agar Bapak/Ibu yakin dengan kerapian dan kualitas premium modul kami.</p>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-8">
                         <div className="bg-white rounded-2xl shadow-md overflow-hidden transform hover:-translate-y-2 hover:shadow-xl transition duration-300 flex flex-col border border-gray-100">
-                            <div className="h-52 bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center relative group cursor-pointer" onClick={() => openPdfModal('cover.pdf', 'Preview Cover & Identitas')}>
+                            <div className="h-52 bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center relative group cursor-pointer" onClick={() => openPdfModal(slotCover.url, slotCover.title)}>
                                 <div className="w-24 h-32 bg-white shadow-lg rounded-md border border-gray-200 flex flex-col items-center justify-center p-3 transition duration-300 group-hover:scale-105">
                                     <div className="w-full h-3 bg-blue-500 rounded-sm mb-3"></div>
                                     <div className="w-full h-1.5 bg-gray-200 rounded-sm mb-2"></div>
@@ -426,16 +615,16 @@ function LandingPage({ setView, catalogData, addLead }) {
                                 </span>
                             </div>
                             <div className="p-6 flex flex-col flex-grow text-center">
-                                <h4 className="font-bold text-gray-800 text-lg">Cover & Identitas</h4>
-                                <p className="text-sm text-gray-500 mt-2 flex-grow">Desain rapi, terstruktur, tinggal ganti nama guru & sekolah.</p>
-                                <button onClick={() => openPdfModal('cover.pdf', 'Preview Cover & Identitas')} className="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-xl transition duration-300 flex items-center justify-center gap-2 text-sm shadow-md">
+                                <h4 className="font-bold text-gray-800 text-lg">{slotCover.title}</h4>
+                                <p className="text-sm text-gray-500 mt-2 flex-grow">{slotCover.desc}</p>
+                                <button onClick={() => openPdfModal(slotCover.url, slotCover.title)} className="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-xl transition duration-300 flex items-center justify-center gap-2 text-sm shadow-md">
                                     <Eye size={16} /> Buka Preview
                                 </button>
                             </div>
                         </div>
 
                         <div className="bg-white rounded-2xl shadow-md overflow-hidden transform hover:-translate-y-2 hover:shadow-xl transition duration-300 flex flex-col border border-gray-100">
-                            <div className="h-52 bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center relative group cursor-pointer" onClick={() => openPdfModal('prota.pdf', 'Preview Prota & Prosem')}>
+                            <div className="h-52 bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center relative group cursor-pointer" onClick={() => openPdfModal(slotProta.url, slotProta.title)}>
                                 <div className="w-24 h-32 bg-white shadow-lg rounded-md border border-gray-200 p-3 transition duration-300 group-hover:scale-105">
                                     <div className="w-1/2 h-3 bg-emerald-500 rounded-sm mb-3"></div>
                                     <div className="w-full h-12 bg-gray-50 border border-gray-150 rounded mb-2 grid grid-cols-3 gap-1 p-1">
@@ -449,16 +638,16 @@ function LandingPage({ setView, catalogData, addLead }) {
                                 </div>
                             </div>
                             <div className="p-6 flex flex-col flex-grow text-center">
-                                <h4 className="font-bold text-gray-800 text-lg">Prota & Prosem</h4>
-                                <p className="text-sm text-gray-500 mt-2 flex-grow">Otomatis menghitung pekan efektif & JP.</p>
-                                <button onClick={() => openPdfModal('prota.pdf', 'Preview Prota & Prosem')} className="mt-4 w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-sm shadow-md">
+                                <h4 className="font-bold text-gray-800 text-lg">{slotProta.title}</h4>
+                                <p className="text-sm text-gray-500 mt-2 flex-grow">{slotProta.desc}</p>
+                                <button onClick={() => openPdfModal(slotProta.url, slotProta.title)} className="mt-4 w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-sm shadow-md">
                                     <Eye size={16} /> Buka Preview
                                 </button>
                             </div>
                         </div>
 
                         <div className="bg-white rounded-2xl shadow-md overflow-hidden transform hover:-translate-y-2 hover:shadow-xl transition duration-300 flex flex-col border border-gray-100">
-                            <div className="h-52 bg-gradient-to-br from-yellow-50 to-amber-100 flex items-center justify-center relative group cursor-pointer" onClick={() => openPdfModal('isi.pdf', 'Preview Modul & LKPD')}>
+                            <div className="h-52 bg-gradient-to-br from-yellow-50 to-amber-100 flex items-center justify-center relative group cursor-pointer" onClick={() => openPdfModal(slotIsi.url, slotIsi.title)}>
                                 <div className="w-24 h-32 bg-white shadow-lg rounded-md border border-gray-200 p-3 transition duration-300 group-hover:scale-105">
                                     <div className="w-full h-3 bg-amber-500 rounded-sm mb-3"></div>
                                     <div className="w-full h-8 bg-amber-50/50 border border-dashed border-amber-200 flex items-center justify-center text-[7px] text-amber-600 font-bold">MODUL & LKPD</div>
@@ -470,9 +659,9 @@ function LandingPage({ setView, catalogData, addLead }) {
                                 </div>
                             </div>
                             <div className="p-6 flex flex-col flex-grow text-center">
-                                <h4 className="font-bold text-gray-800 text-lg">Modul Ajar & LKPD</h4>
-                                <p className="text-sm text-gray-500 mt-2 flex-grow">Langkah pembelajaran terperinci.</p>
-                                <button onClick={() => openPdfModal('isi.pdf', 'Preview Modul & LKPD')} className="mt-4 w-full bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-sm shadow-md">
+                                <h4 className="font-bold text-gray-800 text-lg">{slotIsi.title}</h4>
+                                <p className="text-sm text-gray-500 mt-2 flex-grow">{slotIsi.desc}</p>
+                                <button onClick={() => openPdfModal(slotIsi.url, slotIsi.title)} className="mt-4 w-full bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-sm shadow-md">
                                     <Eye size={16} /> Buka Preview
                                 </button>
                             </div>
@@ -481,7 +670,6 @@ function LandingPage({ setView, catalogData, addLead }) {
                 </div>
             </section>
 
-            {/* SEKSI TESTIMONI - 100% ASLI DARI PROMPT PERTAMA */}
             <section className="py-16 px-4 bg-white">
                 <div className="max-w-4xl mx-auto">
                     <div className="text-center mb-10">
@@ -489,7 +677,7 @@ function LandingPage({ setView, catalogData, addLead }) {
                         <div className="h-1 w-20 bg-yellow-500 mx-auto mt-2 rounded"></div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                         <div className="bg-gray-50 p-6 rounded-xl border border-gray-100 shadow-sm">
                             <div className="flex items-center mb-4">
                                 <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold mr-3">SR</div>
@@ -535,7 +723,6 @@ function LandingPage({ setView, catalogData, addLead }) {
                 </div>
             </section>
 
-            {/* SEKSI BARU: FAQ */}
             <section className="py-16 px-4 bg-blue-50 border-t border-blue-100">
                 <div className="max-w-3xl mx-auto">
                     <h2 className="text-3xl font-bold text-center text-blue-900 mb-10">Pertanyaan Sering Diajukan (FAQ)</h2>
@@ -553,7 +740,6 @@ function LandingPage({ setView, catalogData, addLead }) {
                 </div>
             </section>
 
-            {/* FOOTER & TOMBOL WA ASLI DARI PROMPT PERTAMA */}
             <div className="bg-gray-800 text-white py-12 text-center text-sm relative">
                 <p>© 2026 Layanan Pembuatan Modul Ajar Profesional.</p>
                 <p className="mt-2 text-gray-400">Siap bantu Guru Lulus Supervisi dan Mudah Mengajar Tanpa Pusing Administrasi.</p>
@@ -561,7 +747,7 @@ function LandingPage({ setView, catalogData, addLead }) {
                 <div className="mt-12 flex justify-center">
                     <button
                         onClick={() => setView('login')}
-                        className="flex items-center gap-2 px-4 py-2 text-gray-500 hover:text-white transition-colors text-xs opacity-60 hover:opacity-100 rounded-lg hover:bg-gray-700"
+                        className="flex items-center gap-2 px-4 py-2 text-gray-500 hover:text-white transition-colors text-xs opacity-60 hover:opacity-100 rounded-lg hover:bg-gray-700 animate-pulse"
                     >
                         <Lock size={12} /> Portal Staff & Admin
                     </button>
@@ -573,7 +759,6 @@ function LandingPage({ setView, catalogData, addLead }) {
                 <MessageCircle size={32} />
             </button>
 
-            {/* MODAL PDF - 100% ASLI DARI PROMPT PERTAMA */}
             {pdfModal.isOpen && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={closePdfModal}></div>
@@ -593,13 +778,17 @@ function LandingPage({ setView, catalogData, addLead }) {
                             <div className="bg-amber-50 border-b border-amber-200 px-6 py-2.5 text-xs text-amber-800 flex items-center justify-between">
                                 <span className="flex items-center gap-2">
                                     <Info size={14} className="text-amber-600" />
-                                    <span>Preview dokumen: <strong>{pdfModal.url}</strong></span>
+                                    <span>Tautan Dokumen: <a href={pdfModal.url} target="_blank" rel="noreferrer" className="underline font-bold text-blue-700">{pdfModal.url}</a></span>
                                 </span>
                             </div>
-                            <div className="flex-grow flex items-center justify-center text-gray-400 bg-gray-100">
-                                <div className="text-center">
-                                    <FileText size={64} className="mx-auto mb-4 opacity-50" />
-                                    <p>Memuat {pdfModal.url} ... (Simulasi)</p>
+                            <div className="flex-grow flex items-center justify-center text-gray-400 bg-gray-100 p-4 text-center">
+                                <div className="max-w-md bg-white p-6 rounded-xl shadow-md border">
+                                    <FileText size={64} className="mx-auto mb-4 text-red-500 animate-bounce" />
+                                    <h4 className="text-gray-850 font-bold mb-2 text-base">Dokumen Siap Ditinjau</h4>
+                                    <p className="text-xs text-gray-500 mb-6">Klik tombol di bawah untuk membuka berkas pratinjau lengkap di halaman baru.</p>
+                                    <a href={pdfModal.url} target="_blank" rel="noreferrer" className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold py-2.5 px-6 rounded-lg transition shadow-md inline-block">
+                                        Buka Tautan Pratinjau
+                                    </a>
                                 </div>
                             </div>
                         </div>
@@ -612,7 +801,6 @@ function LandingPage({ setView, catalogData, addLead }) {
                 </div>
             )}
 
-            {/* MODAL BARU: LEAD MAGNET */}
             {leadModal && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setLeadModal(false)}></div>
@@ -620,17 +808,17 @@ function LandingPage({ setView, catalogData, addLead }) {
                         <button onClick={() => setLeadModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><XCircle size={20} /></button>
                         <div className="text-center mb-6">
                             <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-3"><Download size={32} /></div>
-                            <h3 className="text-xl font-bold text-gray-800">Unduh Sampel Modul</h3>
+                            <h3 className="text-xl font-bold text-gray-850">Unduh Sampel Modul</h3>
                             <p className="text-sm text-gray-500 mt-1">Kami akan mengirimkan link Google Drive sampel modul langsung ke WhatsApp Anda.</p>
                         </div>
                         <form onSubmit={handleLeadSubmit} className="space-y-4">
                             <div>
                                 <label className="block text-xs font-bold text-gray-700 mb-1">Nama Lengkap</label>
-                                <input type="text" required value={leadForm.name} onChange={e => setLeadForm({ ...leadForm, name: e.target.value })} className="w-full border px-3 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Bpk/Ibu Guru..." />
+                                <input type="text" required value={leadForm.name} onChange={e => setLeadForm({ ...leadForm, name: e.target.value })} className="w-full border px-3 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white text-gray-850" placeholder="Bpk/Ibu Guru..." />
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-gray-700 mb-1">Nomor WhatsApp Aktif</label>
-                                <input type="text" required value={leadForm.phone} onChange={e => setLeadForm({ ...leadForm, phone: e.target.value })} className="w-full border px-3 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="08123456789" />
+                                <input type="text" required value={leadForm.phone} onChange={e => setLeadForm({ ...leadForm, phone: e.target.value })} className="w-full border px-3 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white text-gray-850" placeholder="08123456789" />
                             </div>
                             <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-md transition text-sm">Kirim Link ke WhatsApp Saya</button>
                         </form>
@@ -677,11 +865,11 @@ function LoginPage({ setView, onLogin, usersData }) {
                     <form onSubmit={handleSubmit} className="space-y-5">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-                            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} required className="w-full border-gray-300 border px-4 py-2 rounded-lg" placeholder="Masukkan username" />
+                            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} required className="w-full border-gray-300 border px-4 py-2 rounded-lg bg-white text-gray-850" placeholder="Masukkan username" />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full border-gray-300 border px-4 py-2 rounded-lg" placeholder="••••••••" />
+                            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full border-gray-300 border px-4 py-2 rounded-lg bg-white text-gray-850" placeholder="••••••••" />
                         </div>
                         <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-md transition flex justify-center items-center gap-2">
                             Masuk Dashboard <ArrowRight size={18} />
@@ -696,12 +884,40 @@ function LoginPage({ setView, onLogin, usersData }) {
 
 // ---------------------- DASHBOARD (INTERNAL) ----------------------
 
-function Dashboard({ user, onLogout, salesData, addSale, updateSale, deleteSale, usersData, addStaffUser, deleteStaffUser, catalogData, addProduct, updateProduct, deleteProduct, expensesData, addExpense, updateExpense, deleteExpense }) {
+function Dashboard({ 
+    user, onLogout, salesData, addSale, updateSale, deleteSale, 
+    usersData, addStaffUser, deleteStaffUser, catalogData, 
+    addProduct, updateProduct, deleteProduct, expensesData, 
+    addExpense, updateExpense, deleteExpense, previewsData, 
+    payoutsData, updatePreview, payStaffCommission, showAlert, showConfirm 
+}) {
     const [activeTab, setActiveTab] = useState(user.role === 'staff' ? 'input' : 'overview');
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+    const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
     return (
-        <div className="flex h-screen bg-gray-100 overflow-hidden">
-            <div className="w-64 bg-blue-900 text-white flex flex-col hidden md:flex">
+        <div className="flex h-screen bg-gray-100 overflow-hidden relative">
+            
+            {/* 1. MOBILE HEADER BAR */}
+            <div className="bg-blue-900 text-white p-4 flex justify-between items-center md:hidden shadow-md fixed top-0 left-0 right-0 z-45">
+                <div className="flex items-center gap-2">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/9/9c/Logo_of_Ministry_of_Education_and_Culture_of_Republic_of_Indonesia.svg"
+                        alt="Logo" className="h-8 w-auto" />
+                    <span className="font-bold text-sm">Sobat Guru Digital</span>
+                </div>
+                <button onClick={toggleSidebar} className="p-1.5 hover:bg-blue-800 rounded-lg">
+                    <Menu size={24} />
+                </button>
+            </div>
+
+            {/* Backdrop Overlay untuk Sidebar Mobile */}
+            {isSidebarOpen && (
+                <div className="fixed inset-0 bg-black/50 z-40 md:hidden animate-fade-in" onClick={toggleSidebar}></div>
+            )}
+
+            {/* 2. SIDEBAR NAVIGATION */}
+            <div className={`fixed md:static inset-y-0 left-0 bg-blue-900 text-white w-64 z-50 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-350 flex flex-col`}>
                 <div className="p-6 text-center border-b border-blue-800">
                     <div className="w-16 h-16 bg-white/10 rounded-full mx-auto flex items-center justify-center mb-3"><User size={32} className="text-yellow-400" /></div>
                     <h3 className="font-bold text-lg truncate px-2">{user.name}</h3>
@@ -712,20 +928,22 @@ function Dashboard({ user, onLogout, salesData, addSale, updateSale, deleteSale,
                     {user.role === 'admin' && (
                         <>
                             <div className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mb-2 mt-2 px-2">Keuangan & Performa</div>
-                            <SidebarBtn icon={<LayoutDashboard />} label="Overview Bisnis" active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
-                            <SidebarBtn icon={<DollarSign />} label="Laporan Finansial" active={activeTab === 'all_sales'} onClick={() => setActiveTab('all_sales')} />
-                            <SidebarBtn icon={<Award />} label="Penggajian Komisi" active={activeTab === 'commission'} onClick={() => setActiveTab('commission')} />
-                            <SidebarBtn icon={<Trophy />} label="Leaderboard Sales" active={activeTab === 'leaderboard'} onClick={() => setActiveTab('leaderboard')} />
+                            <SidebarBtn icon={<LayoutDashboard />} label="Overview Bisnis" active={activeTab === 'overview'} onClick={() => { setActiveTab('overview'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<DollarSign />} label="Laporan Finansial" active={activeTab === 'all_sales'} onClick={() => { setActiveTab('all_sales'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<Award />} label="Penggajian Komisi" active={activeTab === 'commission'} onClick={() => { setActiveTab('commission'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<Trophy />} label="Leaderboard Sales" active={activeTab === 'leaderboard'} onClick={() => { setActiveTab('leaderboard'); setIsSidebarOpen(false); }} />
 
                             <div className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mb-2 mt-6 px-2">Manajemen Konten</div>
-                            <SidebarBtn icon={<Package />} label="Katalog Landing Page" active={activeTab === 'manage_catalog'} onClick={() => setActiveTab('manage_catalog')} />
-                            <SidebarBtn icon={<Users />} label="Manajemen Staff" active={activeTab === 'manage_staff'} onClick={() => setActiveTab('manage_staff')} />
+                            <SidebarBtn icon={<FileText />} label="Pratinjau Landing" active={activeTab === 'manage_previews'} onClick={() => { setActiveTab('manage_previews'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<Package />} label="Katalog Landing" active={activeTab === 'manage_catalog'} onClick={() => { setActiveTab('manage_catalog'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<Users />} label="Manajemen Staff" active={activeTab === 'manage_staff'} onClick={() => { setActiveTab('manage_staff'); setIsSidebarOpen(false); }} />
                         </>
                     )}
                     {user.role === 'staff' && (
                         <>
-                            <SidebarBtn icon={<PlusCircle />} label="Input Closingan" active={activeTab === 'input'} onClick={() => setActiveTab('input')} />
-                            <SidebarBtn icon={<ShoppingBag />} label="Riwayat Penjualan" active={activeTab === 'my_sales'} onClick={() => setActiveTab('my_sales')} />
+                            <SidebarBtn icon={<PlusCircle />} label="Input Closingan" active={activeTab === 'input'} onClick={() => { setActiveTab('input'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<ShoppingBag />} label="Riwayat Penjualan" active={activeTab === 'my_sales'} onClick={() => { setActiveTab('my_sales'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<Award />} label="Laporan Komisi Saya" active={activeTab === 'my_commissions'} onClick={() => { setActiveTab('my_commissions'); setIsSidebarOpen(false); }} />
                         </>
                     )}
                 </nav>
@@ -734,9 +952,12 @@ function Dashboard({ user, onLogout, salesData, addSale, updateSale, deleteSale,
                 </div>
             </div>
 
-            <div className="flex-grow overflow-y-auto">
+            {/* 3. MAIN CONTENT VIEW */}
+            <div className="flex-grow overflow-y-auto pt-16 md:pt-0">
                 <main className="p-4 md:p-8">
-                    {user.role === 'admin' && activeTab === 'overview' && <AdminOverview salesData={salesData} expensesData={expensesData} />}
+                    {user.role === 'admin' && activeTab === 'overview' && (
+                        <AdminOverview salesData={salesData} expensesData={expensesData} />
+                    )}
                     {user.role === 'admin' && activeTab === 'all_sales' && (
                         <SalesTable
                             data={salesData}
@@ -749,20 +970,42 @@ function Dashboard({ user, onLogout, salesData, addSale, updateSale, deleteSale,
                             addExpense={addExpense}
                             updateExpense={updateExpense}
                             deleteExpense={deleteExpense}
+                            showConfirm={showConfirm}
                         />
                     )}
-                    {user.role === 'admin' && activeTab === 'commission' && <CommissionReport salesData={salesData} />}
+                    {user.role === 'admin' && activeTab === 'commission' && (
+                        <CommissionReport 
+                            salesData={salesData} 
+                            payoutsData={payoutsData}
+                            usersData={usersData}
+                            payStaffCommission={payStaffCommission}
+                            showAlert={showAlert}
+                            showConfirm={showConfirm}
+                        />
+                    )}
                     {user.role === 'admin' && activeTab === 'leaderboard' && <Leaderboard salesData={salesData} />}
-                    {user.role === 'admin' && activeTab === 'manage_catalog' && <ManageCatalog catalogData={catalogData} addProduct={addProduct} updateProduct={updateProduct} deleteProduct={deleteProduct} />}
-                    {user.role === 'admin' && activeTab === 'manage_staff' && <ManageStaff usersData={usersData} addStaffUser={addStaffUser} deleteStaffUser={deleteStaffUser} />}
+                    {user.role === 'admin' && activeTab === 'manage_previews' && (
+                        <ManagePreviews 
+                            previewsData={previewsData} 
+                            updatePreview={updatePreview} 
+                            showAlert={showAlert} 
+                        />
+                    )}
+                    {user.role === 'admin' && activeTab === 'manage_catalog' && <ManageCatalog catalogData={catalogData} addProduct={addProduct} updateProduct={updateProduct} deleteProduct={deleteProduct} showConfirm={showConfirm} />}
+                    {user.role === 'admin' && activeTab === 'manage_staff' && <ManageStaff usersData={usersData} addStaffUser={addStaffUser} deleteStaffUser={deleteStaffUser} showConfirm={showConfirm} />}
 
                     {user.role === 'staff' && activeTab === 'input' && <StaffInputForm addSale={addSale} userName={user.name} setTab={setActiveTab} catalogData={catalogData} />}
                     {user.role === 'staff' && activeTab === 'my_sales' && <SalesTable data={salesData.filter(s => s.staffName === user.name)} title="Riwayat Penjualan Saya" showFilters={false} isAdmin={false} />}
+                    {user.role === 'staff' && activeTab === 'my_commissions' && (
+                        <StaffCommissions staffName={user.name} salesData={salesData} payoutsData={payoutsData} />
+                    )}
                 </main>
             </div>
         </div>
     );
 }
+
+// ---------------------- SHARED SUB-COMPONENTS ----------------------
 
 function SidebarBtn({ icon, label, active, onClick }) {
     return (
@@ -773,18 +1016,28 @@ function SidebarBtn({ icon, label, active, onClick }) {
     );
 }
 
-// ---------------- ADMIN COMPONENTS ----------------
-
 function AdminOverview({ salesData, expensesData }) {
-    // 1. Calculate General Financial Figures
-    const totalRevenue = salesData.reduce((acc, curr) => acc + curr.amount, 0);
+    const [startDate, setStartDate] = useState(() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 30);
+        return d.toISOString().split('T')[0];
+    });
+    const [endDate, setEndDate] = useState(() => {
+        return new Date().toISOString().split('T')[0];
+    });
 
-    // Calculate staff commissions & bonuses for all sales
+    const [chartPeriod, setChartPeriod] = useState('daily');
+
+    const filteredSales = salesData.filter(s => s.date >= startDate && s.date <= endDate);
+    const filteredExpenses = expensesData.filter(e => e.date >= startDate && e.date <= endDate);
+
+    const totalRevenue = filteredSales.reduce((acc, curr) => acc + curr.amount, 0);
+
     const staffDailySales = {};
     let totalCommissionCost = 0;
     let totalBonusCost = 0;
 
-    salesData.forEach(sale => {
+    filteredSales.forEach(sale => {
         totalCommissionCost += sale.amount * 0.10;
         const dayKey = `${sale.staffName}_${sale.date}`;
         if (!staffDailySales[dayKey]) staffDailySales[dayKey] = 0;
@@ -799,24 +1052,26 @@ function AdminOverview({ salesData, expensesData }) {
     });
 
     const totalCommissionExpenses = totalCommissionCost + totalBonusCost;
-    const totalOperationalExpenses = expensesData.reduce((acc, curr) => acc + curr.amount, 0);
+    const totalOperationalExpenses = filteredExpenses.reduce((acc, curr) => acc + curr.amount, 0);
     const totalExpenses = totalOperationalExpenses + totalCommissionExpenses;
     const totalNetProfit = totalRevenue - totalExpenses;
 
-    // 2. Daily Trends Calculations (Last 15 Days)
-    const last15Days = [];
-    for (let i = 14; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const dateString = d.toISOString().split('T')[0];
-        last15Days.push(dateString);
+    const activeDatesList = [];
+    const loopDate = new Date(startDate);
+    const endLoopDate = new Date(endDate);
+    let protectionCounter = 0;
+
+    while (loopDate <= endLoopDate && protectionCounter < 45) {
+        activeDatesList.push(loopDate.toISOString().split('T')[0]);
+        loopDate.setDate(loopDate.getDate() + 1);
+        protectionCounter++;
     }
 
-    const dailyStats = last15Days.map(date => {
-        const revenue = salesData.filter(s => s.date === date).reduce((acc, curr) => acc + curr.amount, 0);
-        const opExpenses = expensesData.filter(e => e.date === date).reduce((acc, curr) => acc + curr.amount, 0);
+    const dailyStats = activeDatesList.map(date => {
+        const revenue = filteredSales.filter(s => s.date === date).reduce((acc, curr) => acc + curr.amount, 0);
+        const opExpenses = filteredExpenses.filter(e => e.date === date).reduce((acc, curr) => acc + curr.amount, 0);
 
-        const salesOnDay = salesData.filter(s => s.date === date);
+        const salesOnDay = filteredSales.filter(s => s.date === date);
         let dayCommission = 0;
         let dayBonus = 0;
         const staffSalesOnDay = {};
@@ -836,20 +1091,28 @@ function AdminOverview({ salesData, expensesData }) {
         return { date, revenue, expenses, profit };
     });
 
-    // 3. Monthly Trends Calculations (Last 6 Months)
-    const last6Months = [];
-    for (let i = 5; i >= 0; i--) {
-        const d = new Date();
-        d.setMonth(d.getMonth() - i);
-        const monthString = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        last6Months.push(monthString);
+    const activeMonthsList = [];
+    const startM = new Date(startDate);
+    const endM = new Date(endDate);
+    let loopMonth = new Date(startM.getFullYear(), startM.getMonth(), 2);
+    let protectionMonth = 0;
+
+    while (loopMonth <= new Date(endM.getFullYear(), endM.getMonth() + 1, 1) && protectionMonth < 12) {
+        const yStr = loopMonth.getFullYear();
+        const mStr = String(loopMonth.getMonth() + 1).padStart(2, '0');
+        const monthKey = `${yStr}-${mStr}`;
+        if (!activeMonthsList.includes(monthKey)) {
+            activeMonthsList.push(monthKey);
+        }
+        loopMonth.setMonth(loopMonth.getMonth() + 1);
+        protectionMonth++;
     }
 
-    const monthlyStats = last6Months.map(month => {
-        const revenue = salesData.filter(s => s.date.startsWith(month)).reduce((acc, curr) => acc + curr.amount, 0);
-        const opExpenses = expensesData.filter(e => e.date.startsWith(month)).reduce((acc, curr) => acc + curr.amount, 0);
+    const monthlyStats = activeMonthsList.map(month => {
+        const revenue = filteredSales.filter(s => s.date.startsWith(month)).reduce((acc, curr) => acc + curr.amount, 0);
+        const opExpenses = filteredExpenses.filter(e => e.date.startsWith(month)).reduce((acc, curr) => acc + curr.amount, 0);
 
-        const salesInMonth = salesData.filter(s => s.date.startsWith(month));
+        const salesInMonth = filteredSales.filter(s => s.date.startsWith(month));
         let monthCommission = 0;
         let monthBonus = 0;
         const staffDailySalesInMonth = {};
@@ -874,12 +1137,8 @@ function AdminOverview({ salesData, expensesData }) {
         return { month, label: `${monthName} ${year}`, revenue, expenses, profit };
     });
 
-    // Toggle daily vs monthly chart view
-    const [chartPeriod, setChartPeriod] = useState('daily'); // 'daily' | 'monthly'
-
-    // Grouping by Best Selling Products
     const productStats = {};
-    salesData.forEach(sale => {
+    filteredSales.forEach(sale => {
         const prod = sale.product || 'Modul Lainnya';
         if (!productStats[prod]) productStats[prod] = { count: 0, revenue: 0 };
         productStats[prod].count += 1;
@@ -890,14 +1149,13 @@ function AdminOverview({ salesData, expensesData }) {
         .sort((a, b) => b.revenue - a.revenue)
         .slice(0, 5);
 
-    // Grouping Expenses by Category
     const categoryStats = {
         'Komisi & Gaji': totalCommissionExpenses,
         'Operasional': 0,
         'Marketing': 0,
         'Lain-lain': 0
     };
-    expensesData.forEach(exp => {
+    filteredExpenses.forEach(exp => {
         const cat = exp.category || 'Lain-lain';
         if (categoryStats[cat] !== undefined) {
             categoryStats[cat] += exp.amount;
@@ -906,7 +1164,6 @@ function AdminOverview({ salesData, expensesData }) {
         }
     });
 
-    // Chart SVG calculations
     const getDailyChartPoints = () => {
         if (dailyStats.length === 0) return { rev: '', prof: '' };
         const maxVal = Math.max(...dailyStats.map(s => Math.max(s.revenue, s.profit)), 100000);
@@ -915,13 +1172,13 @@ function AdminOverview({ salesData, expensesData }) {
         const padding = 20;
 
         const pointsRev = dailyStats.map((s, idx) => {
-            const x = padding + (idx * (width - padding * 2)) / (dailyStats.length - 1);
+            const x = padding + (idx * (width - padding * 2)) / Math.max((dailyStats.length - 1), 1);
             const y = height - padding - (s.revenue * (height - padding * 2)) / maxVal;
             return `${x},${y}`;
         }).join(' ');
 
         const pointsProf = dailyStats.map((s, idx) => {
-            const x = padding + (idx * (width - padding * 2)) / (dailyStats.length - 1);
+            const x = padding + (idx * (width - padding * 2)) / Math.max((dailyStats.length - 1), 1);
             const y = height - padding - (s.profit * (height - padding * 2)) / maxVal;
             return `${x},${y}`;
         }).join(' ');
@@ -932,46 +1189,48 @@ function AdminOverview({ salesData, expensesData }) {
     const dailyPoints = getDailyChartPoints();
 
     return (
-        <div className="space-y-6 animate-in fade-in">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="space-y-6 animate-in fade-in pt-4 md:pt-0">
+            <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 border-b pb-4">
                 <div>
-                    <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight">Overview Bisnis Owner</h1>
-                    <p className="text-gray-500 text-sm mt-1">Pantau perolehan omzet, pengeluaran operasional, dan keuntungan bersih real-time.</p>
+                    <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight text-blue-950">Overview Bisnis Owner</h1>
+                    <p className="text-gray-500 text-sm mt-1">Pantau perolehan omzet, pengeluaran operasional, dan keuntungan bersih secara real-time.</p>
                 </div>
-                <div className="bg-white border rounded-xl shadow-sm p-1.5 flex gap-1.5 self-stretch sm:self-auto">
-                    <button
-                        onClick={() => setChartPeriod('daily')}
-                        className={`flex-1 sm:flex-none text-xs font-semibold py-2 px-4 rounded-lg transition-all ${chartPeriod === 'daily' ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:bg-gray-50'}`}
-                    >
-                        Harian (15 Hari)
-                    </button>
-                    <button
-                        onClick={() => setChartPeriod('monthly')}
-                        className={`flex-1 sm:flex-none text-xs font-semibold py-2 px-4 rounded-lg transition-all ${chartPeriod === 'monthly' ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:bg-gray-50'}`}
-                    >
-                        Bulanan (6 Bulan)
-                    </button>
+                
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-white p-3 rounded-xl border w-full xl:w-auto shadow-sm">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Periode:</span>
+                        <input 
+                            type="date" 
+                            value={startDate} 
+                            onChange={e => setStartDate(e.target.value)} 
+                            className="border px-2.5 py-1 text-xs rounded-lg bg-gray-50 text-gray-850 font-bold focus:ring-2 focus:ring-blue-500" 
+                        />
+                        <span className="text-xs text-gray-400">s/d</span>
+                        <input 
+                            type="date" 
+                            value={endDate} 
+                            onChange={e => setEndDate(e.target.value)} 
+                            className="border px-2.5 py-1 text-xs rounded-lg bg-gray-50 text-gray-850 font-bold focus:ring-2 focus:ring-blue-500" 
+                        />
+                    </div>
                 </div>
             </div>
 
-            {/* Core Financial Cards Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Revenue Card */}
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:shadow-md transition">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:shadow-md transition animate-in">
                     <div className="space-y-2">
                         <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">Total Omzet (Revenue)</p>
                         <h3 className="text-2xl font-black text-gray-800">Rp {totalRevenue.toLocaleString('id-ID')}</h3>
                         <p className="text-[11px] text-green-500 font-medium flex items-center gap-1">
                             <span className="bg-green-50 px-2 py-0.5 rounded-full">Bruto</span>
-                            <span>Total penjualan modul</span>
+                            <span>Total penjualan terfilter</span>
                         </p>
                     </div>
                     <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center shadow-inner"><DollarSign size={28} /></div>
                 </div>
 
-                {/* Expenses Card */}
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:shadow-md transition">
-                    <div className="space-y-2">
+                    <div className="space-y-2 w-full">
                         <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">Total Pengeluaran</p>
                         <h3 className="text-2xl font-black text-red-600">Rp {totalExpenses.toLocaleString('id-ID')}</h3>
                         <div className="text-[10px] text-gray-500 space-y-0.5 font-medium">
@@ -985,11 +1244,10 @@ function AdminOverview({ salesData, expensesData }) {
                             </div>
                         </div>
                     </div>
-                    <div className="w-14 h-14 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center shadow-inner"><DollarSign size={28} className="rotate-180" /></div>
+                    <div className="w-14 h-14 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center shadow-inner self-start mt-2"><DollarSign size={28} className="rotate-180" /></div>
                 </div>
 
-                {/* Net Profit Card */}
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:shadow-md transition">
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:shadow-md transition sm:col-span-2 lg:col-span-1">
                     <div className="space-y-2">
                         <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">Keuntungan Bersih (Profit)</p>
                         <h3 className={`text-2xl font-black ${totalNetProfit >= 0 ? 'text-green-600' : 'text-rose-600'}`}>
@@ -997,40 +1255,52 @@ function AdminOverview({ salesData, expensesData }) {
                         </h3>
                         <p className="text-[11px] text-blue-500 font-medium flex items-center gap-1">
                             <span className="bg-blue-50 px-2 py-0.5 rounded-full">Netto</span>
-                            <span>Omzet dikurangi pengeluaran</span>
+                            <span>Sisa omzet dikurangi biaya</span>
                         </p>
                     </div>
                     <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shadow-inner"><TrendingUp size={28} /></div>
                 </div>
             </div>
 
-            {/* Visual Charts Section */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                    <TrendingUp size={20} className="text-blue-500" />
-                    <span>Tren Performa Keuangan {chartPeriod === 'daily' ? 'Harian' : 'Bulanan'}</span>
-                </h3>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+                    <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <TrendingUp size={20} className="text-blue-500" />
+                        <span>Tren Performa Keuangan {chartPeriod === 'daily' ? 'Harian' : 'Bulanan'}</span>
+                    </h3>
+                    <div className="bg-gray-100 border rounded-xl p-1 flex gap-1.5 self-stretch sm:self-auto">
+                        <button
+                            onClick={() => setChartPeriod('daily')}
+                            className={`flex-1 sm:flex-none text-xs font-semibold py-1.5 px-3 rounded-lg transition-all ${chartPeriod === 'daily' ? 'bg-white text-blue-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+                        >
+                            Harian
+                        </button>
+                        <button
+                            onClick={() => setChartPeriod('monthly')}
+                            className={`flex-1 sm:flex-none text-xs font-semibold py-1.5 px-3 rounded-lg transition-all ${chartPeriod === 'monthly' ? 'bg-white text-blue-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+                        >
+                            Bulanan
+                        </button>
+                    </div>
+                </div>
 
                 {chartPeriod === 'daily' ? (
-                    /* DAILY CHART */
                     <div className="space-y-4">
                         <div className="flex flex-wrap gap-4 text-xs font-semibold justify-end">
                             <div className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 bg-blue-600 rounded-sm"></span> Omzet (Revenue)</div>
-                            <div className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 bg-green-500 rounded-sm"></span> Keuntungan Bersih (Profit)</div>
+                            <div className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 bg-green-500 rounded-sm"></span> Laba Bersih (Profit)</div>
                         </div>
 
                         <div className="relative w-full h-64 border rounded-xl p-4 bg-gray-50 flex flex-col justify-between overflow-x-auto">
                             {dailyStats.length === 0 ? (
-                                <div className="flex-grow flex items-center justify-center text-gray-400 text-sm">Belum ada data transaksi harian.</div>
+                                <div className="flex-grow flex items-center justify-center text-gray-400 text-sm">Belum ada data transaksi harian pada rentang tanggal ini.</div>
                             ) : (
-                                <div className="w-[800px] mx-auto flex-grow flex flex-col justify-between relative">
+                                <div className="min-w-[700px] w-full mx-auto flex-grow flex flex-col justify-between relative">
                                     <svg viewBox="0 0 800 200" className="w-full h-44 overflow-visible">
-                                        {/* Grid lines */}
                                         <line x1="20" y1="20" x2="780" y2="20" stroke="#e5e7eb" strokeDasharray="4" />
                                         <line x1="20" y1="100" x2="780" y2="100" stroke="#e5e7eb" strokeDasharray="4" />
                                         <line x1="20" y1="180" x2="780" y2="180" stroke="#e5e7eb" strokeDasharray="4" />
 
-                                        {/* Revenue Line */}
                                         <polyline
                                             fill="none"
                                             stroke="#2563eb"
@@ -1040,7 +1310,6 @@ function AdminOverview({ salesData, expensesData }) {
                                             points={dailyPoints.pointsRev}
                                         />
 
-                                        {/* Profit Line */}
                                         <polyline
                                             fill="none"
                                             stroke="#10b981"
@@ -1050,30 +1319,23 @@ function AdminOverview({ salesData, expensesData }) {
                                             points={dailyPoints.pointsProf}
                                         />
 
-                                        {/* Nodes */}
                                         {dailyStats.map((s, idx) => {
                                             const width = 800;
                                             const height = 200;
                                             const padding = 20;
-                                            const x = padding + (idx * (width - padding * 2)) / (dailyStats.length - 1);
+                                            const x = padding + (idx * (width - padding * 2)) / Math.max((dailyStats.length - 1), 1);
                                             const yRev = height - padding - (s.revenue * (height - padding * 2)) / dailyPoints.maxVal;
                                             const yProf = height - padding - (s.profit * (height - padding * 2)) / dailyPoints.maxVal;
 
                                             return (
                                                 <g key={idx} className="group cursor-pointer">
-                                                    {/* Revenue node */}
-                                                    <circle cx={x} cy={yRev} r="5" fill="#2563eb" stroke="#ffffff" strokeWidth="2" />
-                                                    <circle cx={x} cy={yRev} r="8" fill="#2563eb" className="opacity-0 group-hover:opacity-20 transition" />
-
-                                                    {/* Profit node */}
-                                                    <circle cx={x} cy={yProf} r="5" fill="#10b981" stroke="#ffffff" strokeWidth="2" />
-                                                    <circle cx={x} cy={yProf} r="8" fill="#10b981" className="opacity-0 group-hover:opacity-20 transition" />
+                                                    <circle cx={x} cy={yRev} r="4.5" fill="#2563eb" stroke="#ffffff" strokeWidth="2" />
+                                                    <circle cx={x} cy={yProf} r="4.5" fill="#10b981" stroke="#ffffff" strokeWidth="2" />
                                                 </g>
                                             );
                                         })}
                                     </svg>
 
-                                    {/* Dates labels */}
                                     <div className="flex justify-between px-[20px] text-[10px] text-gray-500 font-bold border-t pt-2">
                                         {dailyStats.map((s, idx) => {
                                             const [_, m, d] = s.date.split('-');
@@ -1085,7 +1347,6 @@ function AdminOverview({ salesData, expensesData }) {
                         </div>
                     </div>
                 ) : (
-                    /* MONTHLY CHART */
                     <div className="space-y-4 animate-in fade-in duration-250">
                         <div className="flex flex-wrap gap-4 text-xs font-semibold justify-end">
                             <div className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 bg-blue-600 rounded-sm"></span> Omzet (Revenue)</div>
@@ -1095,7 +1356,7 @@ function AdminOverview({ salesData, expensesData }) {
 
                         <div className="relative w-full h-64 border rounded-xl p-4 bg-gray-50 flex items-end justify-between overflow-x-auto gap-4">
                             {monthlyStats.length === 0 ? (
-                                <div className="flex-grow flex items-center justify-center text-gray-400 text-sm">Belum ada data bulanan.</div>
+                                <div className="flex-grow flex items-center justify-center text-gray-400 text-sm">Belum ada data bulanan pada rentang tanggal ini.</div>
                             ) : (
                                 monthlyStats.map((m, idx) => {
                                     const maxVal = Math.max(...monthlyStats.map(s => Math.max(s.revenue, s.expenses, s.profit)), 100000);
@@ -1105,29 +1366,23 @@ function AdminOverview({ salesData, expensesData }) {
 
                                     return (
                                         <div key={idx} className="flex-1 min-w-[80px] flex flex-col items-center gap-2 group">
-                                            {/* Columns */}
                                             <div className="w-full flex items-end justify-center gap-1.5 h-36 border-b pb-1">
-                                                {/* Revenue Bar */}
                                                 <div
                                                     style={{ height: `${Math.max(heightRev, 4)}px` }}
-                                                    className="w-4 bg-blue-600 hover:bg-blue-700 transition rounded-t-sm shadow-sm relative group-hover:scale-105"
+                                                    className="w-4 bg-blue-600 hover:bg-blue-700 transition rounded-t-sm shadow-sm relative"
                                                     title={`Omzet: Rp ${m.revenue.toLocaleString('id-ID')}`}
                                                 ></div>
-                                                {/* Expenses Bar */}
                                                 <div
                                                     style={{ height: `${Math.max(heightExp, 4)}px` }}
-                                                    className="w-4 bg-rose-500 hover:bg-rose-600 transition rounded-t-sm shadow-sm relative group-hover:scale-105"
+                                                    className="w-4 bg-rose-500 hover:bg-rose-600 transition rounded-t-sm shadow-sm relative"
                                                     title={`Pengeluaran: Rp ${m.expenses.toLocaleString('id-ID')}`}
                                                 ></div>
-                                                {/* Profit Bar */}
                                                 <div
                                                     style={{ height: `${Math.max(heightProf, 4)}px` }}
-                                                    className="w-4 bg-emerald-500 hover:bg-emerald-600 transition rounded-t-sm shadow-sm relative group-hover:scale-105"
+                                                    className="w-4 bg-emerald-500 hover:bg-emerald-600 transition rounded-t-sm shadow-sm relative"
                                                     title={`Profit: Rp ${m.profit.toLocaleString('id-ID')}`}
                                                 ></div>
                                             </div>
-
-                                            {/* Label */}
                                             <span className="text-[10px] text-gray-500 font-bold whitespace-nowrap">{m.label}</span>
                                         </div>
                                     );
@@ -1138,24 +1393,22 @@ function AdminOverview({ salesData, expensesData }) {
                 )}
             </div>
 
-            {/* Bottom 2-Column Analytics Widgets Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Product Performance Card */}
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col animate-in slide-in-from-bottom duration-300">
                     <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
                         <BarChart3 size={20} className="text-blue-500" />
-                        <span>Penjualan Paket Modul Terbaik</span>
+                        <span>Penjualan Paket Modul Terbaik (Terfilter)</span>
                     </h3>
                     <div className="flex-grow flex flex-col justify-center">
                         {bestSelling.length === 0 ? (
-                            <p className="text-gray-400 text-sm text-center py-8">Belum ada modul terjual.</p>
+                            <p className="text-gray-400 text-sm text-center py-8">Belum ada modul terjual pada periode ini.</p>
                         ) : (
                             <div className="space-y-4">
                                 {bestSelling.map((prod, idx) => (
-                                    <div key={idx} className="flex items-center justify-between border-b last:border-0 pb-2 last:pb-0">
+                                    <div key={idx} className="flex items-center justify-between border-b last:border-0 pb-2 last:pb-0 font-medium">
                                         <div className="space-y-1">
                                             <span className="text-sm font-bold text-gray-800">{prod.name}</span>
-                                            <p className="text-xs text-gray-400 font-medium">{prod.count} Paket Terjual</p>
+                                            <p className="text-xs text-gray-400">{prod.count} Paket Terjual</p>
                                         </div>
                                         <span className="text-sm font-black text-green-600">Rp {prod.revenue.toLocaleString('id-ID')}</span>
                                     </div>
@@ -1165,24 +1418,23 @@ function AdminOverview({ salesData, expensesData }) {
                     </div>
                 </div>
 
-                {/* Expenses Categorization Card */}
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col animate-in slide-in-from-bottom duration-300">
                     <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
                         <PieChart size={20} className="text-blue-500" />
-                        <span>Alokasi Biaya Pengeluaran</span>
+                        <span>Alokasi Biaya Pengeluaran (Terfilter)</span>
                     </h3>
                     <div className="flex-grow flex flex-col justify-center space-y-4">
                         {totalExpenses === 0 ? (
-                            <p className="text-gray-400 text-sm text-center py-8">Belum ada pengeluaran dicatat.</p>
+                            <p className="text-gray-400 text-sm text-center py-8">Belum ada pengeluaran dicatat pada periode ini.</p>
                         ) : (
                             Object.keys(categoryStats).map((cat, idx) => {
                                 const amount = categoryStats[cat];
                                 const percentage = totalExpenses > 0 ? (amount / totalExpenses) * 100 : 0;
                                 const barColors = [
-                                    'bg-purple-500', // Gaji
-                                    'bg-blue-500',   // Operasional
-                                    'bg-rose-500',   // Marketing
-                                    'bg-gray-400'    // Lain-lain
+                                    'bg-purple-500',
+                                    'bg-blue-500',
+                                    'bg-rose-500',
+                                    'bg-gray-400'
                                 ];
 
                                 return (
@@ -1218,10 +1470,11 @@ function SalesTable({
     expensesData = [],
     addExpense,
     updateExpense,
-    deleteExpense
+    deleteExpense,
+    showConfirm
 }) {
-    const [subTab, setSubTab] = useState('cash_flow'); // 'cash_flow' | 'sales' | 'expenses'
-    const [cashFlowPeriod, setCashFlowPeriod] = useState('daily'); // 'daily' | 'monthly'
+    const [subTab, setSubTab] = useState('cash_flow');
+    const [cashFlowPeriod, setCashFlowPeriod] = useState('daily');
 
     // Sales filters
     const [filterStaff, setFilterStaff] = useState('');
@@ -1293,7 +1546,6 @@ function SalesTable({
         return matchCategory && matchSearch;
     });
 
-    // Calculate staff commissions & bonuses for all sales (needed for correct expense calculations)
     const getCommissionExpensesForDate = (dateString) => {
         const salesOnDay = data.filter(s => s.date === dateString);
         let commission = 0;
@@ -1331,7 +1583,6 @@ function SalesTable({
         return commission + monthBonus;
     };
 
-    // Arus Kas - Daily Aggregation
     const allActiveDates = Array.from(new Set([
         ...data.map(s => s.date),
         ...expensesData.map(e => e.date)
@@ -1346,11 +1597,10 @@ function SalesTable({
         return { date, revenue, expenses: totalExp, profit };
     });
 
-    // Arus Kas - Monthly Aggregation
     const allActiveMonths = Array.from(new Set([
         ...data.map(s => s.date.slice(0, 7)),
         ...expensesData.map(e => e.date.slice(0, 7))
-    ])).sort((a, b) => new Date(b + '-02') - new Date(a + '-02')); // Sort months desc
+    ])).sort((a, b) => new Date(b + '-02') - new Date(a + '-02'));
 
     const monthlyCashFlow = allActiveMonths.map(month => {
         const revenue = data.filter(s => s.date.startsWith(month)).reduce((acc, curr) => acc + curr.amount, 0);
@@ -1364,7 +1614,6 @@ function SalesTable({
         return { month, label: `${monthName} ${year}`, revenue, expenses: totalExp, profit };
     });
 
-    // Sales Grid Inline Editing helpers
     const startEdit = (sale) => {
         setEditingId(sale.id);
         setEditForm({ date: sale.date, customer: sale.customer, product: sale.product, notes: sale.notes || '', amount: sale.amount });
@@ -1375,13 +1624,13 @@ function SalesTable({
         setEditingId(null);
     };
 
-    // If not Admin, just render a clean, read-only sales history table (for staff)
     if (!isAdmin) {
         return (
             <div className="space-y-4 animate-in fade-in">
                 <h1 className="text-xl font-bold text-gray-800">{title}</h1>
                 <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-                    <div className="overflow-x-auto">
+                    
+                    <div className="overflow-x-auto hidden md:block animate-in">
                         <table className="w-full text-left text-sm text-gray-600">
                             <thead className="bg-gray-50 border-b">
                                 <tr>
@@ -1409,58 +1658,78 @@ function SalesTable({
                             </tbody>
                         </table>
                     </div>
+
+                    <div className="block md:hidden space-y-3 p-3 bg-gray-50">
+                        {filteredSales.length === 0 ? (
+                            <p className="text-center py-6 text-gray-400 text-xs">Belum ada riwayat penjualan.</p>
+                        ) : (
+                            filteredSales.map(sale => (
+                                <div key={sale.id} className="bg-white p-4 rounded-xl border shadow-sm space-y-2.5">
+                                    <div className="flex justify-between items-center border-b pb-1.5">
+                                        <span className="font-bold text-gray-850 text-sm">{sale.customer}</span>
+                                        <span className="text-[10px] text-gray-400 font-semibold">{sale.date}</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-y-1 text-xs text-gray-600 font-medium">
+                                        <span>Paket Modul:</span>
+                                        <span className="text-right text-blue-600 font-bold">{sale.product}</span>
+                                        
+                                        <span>Nominal Closing:</span>
+                                        <span className="text-right text-green-600 font-black">Rp {sale.amount.toLocaleString('id-ID')}</span>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+
                 </div>
             </div>
         );
     }
 
-    // Otherwise, render full Owner Financial Portal (Multi-tabbed)
     return (
         <div className="space-y-6 animate-in fade-in">
-            {/* Header and Sub-tabs selectors */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b pb-4">
+            <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 border-b pb-4">
                 <div>
-                    <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight">{title}</h1>
-                    <p className="text-gray-500 text-sm mt-1">Kelola dan pantau seluruh transaksi masuk & keluar secara transparan.</p>
+                    <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight text-blue-950">{title}</h1>
+                    <p className="text-gray-500 text-sm mt-1">Kelola dan pantau seluruh arus keuangan masuk & keluar secara transparan.</p>
                 </div>
 
-                <div className="bg-gray-100 p-1 rounded-xl flex gap-1 self-stretch md:self-auto shadow-inner">
+                <div className="bg-gray-150 p-1.5 rounded-xl flex flex-wrap gap-1 w-full xl:w-auto shadow-inner">
                     <button
                         onClick={() => setSubTab('cash_flow')}
-                        className={`flex-1 md:flex-none text-xs font-bold py-2.5 px-4 rounded-lg transition-all ${subTab === 'cash_flow' ? 'bg-white text-blue-900 shadow' : 'text-gray-600 hover:text-gray-900'}`}
+                        className={`flex-1 xl:flex-none text-xs font-bold py-2 px-4 rounded-lg transition-all ${subTab === 'cash_flow' ? 'bg-white text-blue-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
                     >
                         Buku Arus Kas
                     </button>
                     <button
                         onClick={() => setSubTab('sales')}
-                        className={`flex-1 md:flex-none text-xs font-bold py-2.5 px-4 rounded-lg transition-all ${subTab === 'sales' ? 'bg-white text-blue-900 shadow' : 'text-gray-600 hover:text-gray-900'}`}
+                        className={`flex-1 xl:flex-none text-xs font-bold py-2 px-4 rounded-lg transition-all ${subTab === 'sales' ? 'bg-white text-blue-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
                     >
                         Pemasukan (Sales)
                     </button>
                     <button
                         onClick={() => setSubTab('expenses')}
-                        className={`flex-1 md:flex-none text-xs font-bold py-2.5 px-4 rounded-lg transition-all ${subTab === 'expenses' ? 'bg-white text-blue-900 shadow' : 'text-gray-600 hover:text-gray-900'}`}
+                        className={`flex-1 xl:flex-none text-xs font-bold py-2 px-4 rounded-lg transition-all ${subTab === 'expenses' ? 'bg-white text-blue-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
                     >
                         Pengeluaran (Operasional)
                     </button>
                 </div>
             </div>
 
-            {/* TAB CONTENT: CASH FLOW (ARUS KAS) */}
             {subTab === 'cash_flow' && (
                 <div className="space-y-4 animate-in fade-in">
-                    <div className="flex justify-between items-center bg-white p-4 rounded-xl border">
+                    <div className="flex justify-between items-center bg-white p-4 rounded-xl border shadow-sm">
                         <span className="text-sm font-bold text-gray-700">Tampilan Periode Buku Kas:</span>
-                        <div className="flex gap-2 bg-gray-150 p-1 rounded-lg">
+                        <div className="flex gap-1.5 bg-gray-100 p-1 rounded-lg">
                             <button
                                 onClick={() => setCashFlowPeriod('daily')}
-                                className={`text-xs font-semibold py-1 px-3 rounded ${cashFlowPeriod === 'daily' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500'}`}
+                                className={`text-xs font-semibold py-1.5 px-3 rounded-lg transition-all ${cashFlowPeriod === 'daily' ? 'bg-white text-gray-850 shadow-sm' : 'text-gray-500'}`}
                             >
                                 Harian
                             </button>
                             <button
                                 onClick={() => setCashFlowPeriod('monthly')}
-                                className={`text-xs font-semibold py-1 px-3 rounded ${cashFlowPeriod === 'monthly' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500'}`}
+                                className={`text-xs font-semibold py-1.5 px-3 rounded-lg transition-all ${cashFlowPeriod === 'monthly' ? 'bg-white text-gray-850 shadow-sm' : 'text-gray-500'}`}
                             >
                                 Bulanan
                             </button>
@@ -1468,103 +1737,94 @@ function SalesTable({
                     </div>
 
                     <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
-                        <div className="overflow-x-auto">
-                            {cashFlowPeriod === 'daily' ? (
-                                <table className="w-full text-left text-sm text-gray-600">
-                                    <thead className="bg-gray-50 border-b">
+                        
+                        <div className="overflow-x-auto hidden md:block">
+                            <table className="w-full text-left text-sm text-gray-600">
+                                <thead className="bg-gray-50 border-b">
+                                    <tr>
+                                        <th className="px-6 py-3.5 font-bold text-gray-700">Waktu</th>
+                                        <th className="px-6 py-3.5 font-bold text-gray-700 text-right">Pemasukan (Omzet)</th>
+                                        <th className="px-6 py-3.5 font-bold text-gray-700 text-right">Pengeluaran (Total)</th>
+                                        <th className="px-6 py-3.5 font-bold text-gray-700 text-right">Laba Bersih</th>
+                                        <th className="px-6 py-3.5 font-bold text-gray-700 text-center">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(cashFlowPeriod === 'daily' ? dailyCashFlow : monthlyCashFlow).length === 0 ? (
                                         <tr>
-                                            <th className="px-6 py-3.5 font-bold text-gray-700">Tanggal</th>
-                                            <th className="px-6 py-3.5 font-bold text-gray-700 text-right">Pemasukan (Omzet)</th>
-                                            <th className="px-6 py-3.5 font-bold text-gray-700 text-right">Pengeluaran (Total)</th>
-                                            <th className="px-6 py-3.5 font-bold text-gray-700 text-right">Laba Bersih</th>
-                                            <th className="px-6 py-3.5 font-bold text-gray-700 text-center">Status</th>
+                                            <td colSpan={5} className="text-center py-8 text-gray-400">Belum ada data kas keuangan.</td>
                                         </tr>
-                                    </thead>
-                                    <tbody>
-                                        {dailyCashFlow.length === 0 ? (
-                                            <tr>
-                                                <td colSpan={5} className="text-center py-8 text-gray-400">Belum ada data kas harian.</td>
+                                    ) : (
+                                        (cashFlowPeriod === 'daily' ? dailyCashFlow : monthlyCashFlow).map((cf, idx) => (
+                                            <tr key={idx} className="border-b hover:bg-gray-50/50">
+                                                <td className="px-6 py-4 font-bold text-gray-800">{cashFlowPeriod === 'daily' ? cf.date : cf.label}</td>
+                                                <td className="px-6 py-4 text-right font-semibold text-blue-600">Rp {cf.revenue.toLocaleString('id-ID')}</td>
+                                                <td className="px-6 py-4 text-right font-semibold text-rose-500">Rp {cf.expenses.toLocaleString('id-ID')}</td>
+                                                <td className={`px-6 py-4 text-right font-extrabold ${cf.profit >= 0 ? 'text-green-600' : 'text-rose-600'}`}>
+                                                    Rp {cf.profit.toLocaleString('id-ID')}
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold ${cf.profit >= 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                                                        {cf.profit >= 0 ? 'Untung' : 'Rugi'}
+                                                    </span>
+                                                </td>
                                             </tr>
-                                        ) : (
-                                            dailyCashFlow.map((cf, idx) => (
-                                                <tr key={idx} className="border-b hover:bg-gray-50/50">
-                                                    <td className="px-6 py-4 font-bold text-gray-800">{cf.date}</td>
-                                                    <td className="px-6 py-4 text-right font-semibold text-blue-600">Rp {cf.revenue.toLocaleString('id-ID')}</td>
-                                                    <td className="px-6 py-4 text-right font-semibold text-rose-500">Rp {cf.expenses.toLocaleString('id-ID')}</td>
-                                                    <td className={`px-6 py-4 text-right font-extrabold ${cf.profit >= 0 ? 'text-green-600' : 'text-rose-600'}`}>
-                                                        Rp {cf.profit.toLocaleString('id-ID')}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-center">
-                                                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold ${cf.profit >= 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                                                            {cf.profit >= 0 ? 'Untung' : 'Rugi'}
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        )}
-                                    </tbody>
-                                </table>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="block md:hidden space-y-3 p-3 bg-gray-50">
+                            {(cashFlowPeriod === 'daily' ? dailyCashFlow : monthlyCashFlow).length === 0 ? (
+                                <p className="text-center py-6 text-gray-400 text-xs">Belum ada data kas harian.</p>
                             ) : (
-                                <table className="w-full text-left text-sm text-gray-600">
-                                    <thead className="bg-gray-50 border-b">
-                                        <tr>
-                                            <th className="px-6 py-3.5 font-bold text-gray-700">Bulan</th>
-                                            <th className="px-6 py-3.5 font-bold text-gray-700 text-right">Pemasukan (Omzet)</th>
-                                            <th className="px-6 py-3.5 font-bold text-gray-700 text-right">Pengeluaran (Total)</th>
-                                            <th className="px-6 py-3.5 font-bold text-gray-700 text-right">Laba Bersih</th>
-                                            <th className="px-6 py-3.5 font-bold text-gray-700 text-center">Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {monthlyCashFlow.length === 0 ? (
-                                            <tr>
-                                                <td colSpan={5} className="text-center py-8 text-gray-400">Belum ada data kas bulanan.</td>
-                                            </tr>
-                                        ) : (
-                                            monthlyCashFlow.map((cf, idx) => (
-                                                <tr key={idx} className="border-b hover:bg-gray-50/50">
-                                                    <td className="px-6 py-4 font-bold text-gray-800">{cf.label}</td>
-                                                    <td className="px-6 py-4 text-right font-semibold text-blue-600">Rp {cf.revenue.toLocaleString('id-ID')}</td>
-                                                    <td className="px-6 py-4 text-right font-semibold text-rose-500">Rp {cf.expenses.toLocaleString('id-ID')}</td>
-                                                    <td className={`px-6 py-4 text-right font-extrabold ${cf.profit >= 0 ? 'text-green-600' : 'text-rose-600'}`}>
-                                                        Rp {cf.profit.toLocaleString('id-ID')}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-center">
-                                                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold ${cf.profit >= 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                                                            {cf.profit >= 0 ? 'Untung' : 'Rugi'}
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        )}
-                                    </tbody>
-                                </table>
+                                (cashFlowPeriod === 'daily' ? dailyCashFlow : monthlyCashFlow).map((cf, idx) => (
+                                    <div key={idx} className="bg-white p-4 rounded-xl border shadow-sm space-y-2.5">
+                                        <div className="flex justify-between items-center border-b pb-1.5">
+                                            <span className="font-bold text-gray-800 text-sm">{cashFlowPeriod === 'daily' ? cf.date : cf.label}</span>
+                                            <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${cf.profit >= 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                                                {cf.profit >= 0 ? 'Untung' : 'Rugi'}
+                                            </span>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-y-1 text-xs text-gray-600 font-medium">
+                                            <span>Omzet Masuk:</span>
+                                            <span className="text-right text-blue-600 font-bold">Rp {cf.revenue.toLocaleString('id-ID')}</span>
+
+                                            <span>Total Keluar:</span>
+                                            <span className="text-right text-rose-500 font-bold">Rp {cf.expenses.toLocaleString('id-ID')}</span>
+
+                                            <span className="border-t pt-1 font-bold text-gray-800">Laba Bersih:</span>
+                                            <span className={`text-right border-t pt-1 font-black ${cf.profit >= 0 ? 'text-green-600' : 'text-rose-600'}`}>Rp {cf.profit.toLocaleString('id-ID')}</span>
+                                        </div>
+                                    </div>
+                                ))
                             )}
                         </div>
+
                     </div>
                 </div>
             )}
 
-            {/* TAB CONTENT: PEMASUKAN / SALES */}
             {subTab === 'sales' && (
                 <div className="space-y-4 animate-in fade-in">
-                    <div className="bg-white p-4 rounded-xl border flex flex-col md:flex-row gap-4 items-center justify-between">
-                        <div className="w-full md:w-1/3 flex items-center bg-gray-50 border rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-blue-500 bg-white">
+                    <div className="bg-white p-4 rounded-xl border flex flex-col md:flex-row gap-4 items-center justify-between shadow-sm">
+                        <div className="w-full md:w-1/3 flex items-center bg-gray-50 border rounded-lg px-3 py-2 bg-white">
                             <Search size={16} className="text-gray-400 mr-2" />
                             <input
                                 type="text"
                                 placeholder="Cari nama kustomer..."
                                 value={searchQuery}
                                 onChange={e => setSearchQuery(e.target.value)}
-                                className="bg-transparent border-none text-sm w-full focus:outline-none bg-white"
+                                className="bg-transparent border-none text-sm w-full focus:outline-none text-gray-850"
                             />
                         </div>
 
-                        <div className="w-full md:w-auto flex gap-2 self-stretch md:self-auto bg-white">
+                        <div className="w-full md:w-auto flex gap-2">
                             <select
                                 value={filterStaff}
                                 onChange={e => setFilterStaff(e.target.value)}
-                                className="w-full md:w-48 border px-3 py-2 rounded-lg text-sm bg-white"
+                                className="w-full md:w-48 border px-3 py-2 rounded-lg text-sm bg-white font-medium"
                             >
                                 <option value="">Semua Staff Sales</option>
                                 {Array.from(new Set(data.map(s => s.staffName))).map((staff, i) => (
@@ -1575,7 +1835,8 @@ function SalesTable({
                     </div>
 
                     <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
-                        <div className="overflow-x-auto">
+                        
+                        <div className="overflow-x-auto hidden md:block">
                             <table className="w-full text-left text-sm text-gray-600">
                                 <thead className="bg-gray-50 border-b">
                                     <tr>
@@ -1594,14 +1855,14 @@ function SalesTable({
                                         </tr>
                                     ) : (
                                         filteredSales.map(sale => (
-                                            <tr key={sale.id} className="border-b hover:bg-gray-50/50">
+                                            <tr key={sale.id} className="border-b hover:bg-gray-50/50 animate-in">
                                                 {editingId === sale.id ? (
                                                     <>
-                                                        <td className="px-6 py-3"><input type="date" value={editForm.date} onChange={e => setEditForm({ ...editForm, date: e.target.value })} className="border px-2 py-1 rounded w-full text-sm" /></td>
+                                                        <td className="px-6 py-3"><input type="date" value={editForm.date} onChange={e => setEditForm({ ...editForm, date: e.target.value })} className="border px-2 py-1 rounded w-full text-sm bg-white" /></td>
                                                         <td className="px-6 py-3 text-sm font-bold text-gray-800">{sale.staffName}</td>
-                                                        <td className="px-6 py-3"><input type="text" value={editForm.customer} onChange={e => setEditForm({ ...editForm, customer: e.target.value })} className="border px-2 py-1 rounded w-full text-sm" /></td>
-                                                        <td className="px-6 py-3"><input type="text" value={editForm.product} onChange={e => setEditForm({ ...editForm, product: e.target.value })} className="border px-2 py-1 rounded w-full text-sm" /></td>
-                                                        <td className="px-6 py-3"><input type="number" value={editForm.amount} onChange={e => setEditForm({ ...editForm, amount: e.target.value })} className="border px-2 py-1 rounded w-full text-sm text-right font-bold" /></td>
+                                                        <td className="px-6 py-3"><input type="text" value={editForm.customer} onChange={e => setEditForm({ ...editForm, customer: e.target.value })} className="border px-2 py-1 rounded w-full text-sm bg-white text-gray-800" /></td>
+                                                        <td className="px-6 py-3"><input type="text" value={editForm.product} onChange={e => setEditForm({ ...editForm, product: e.target.value })} className="border px-2 py-1 rounded w-full text-sm bg-white text-gray-800" /></td>
+                                                        <td className="px-6 py-3"><input type="number" value={editForm.amount} onChange={e => setEditForm({ ...editForm, amount: e.target.value })} className="border px-2 py-1 rounded w-full text-sm text-right font-bold bg-white text-gray-800" /></td>
                                                         <td className="px-6 py-3 text-center space-x-2 whitespace-nowrap">
                                                             <button onClick={() => saveEdit(sale.id)} className="bg-blue-600 text-white font-bold px-3 py-1.5 rounded-lg text-xs hover:bg-blue-700 transition">Simpan</button>
                                                             <button onClick={() => setEditingId(null)} className="bg-gray-400 text-white font-bold px-3 py-1.5 rounded-lg text-xs hover:bg-gray-500 transition">Batal</button>
@@ -1611,12 +1872,12 @@ function SalesTable({
                                                     <>
                                                         <td className="px-6 py-4 whitespace-nowrap font-medium">{sale.date}</td>
                                                         <td className="px-6 py-4 font-bold text-blue-900">{sale.staffName}</td>
-                                                        <td className="px-6 py-4 text-gray-800">{sale.customer}</td>
-                                                        <td className="px-6 py-4"><span className="bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-full text-xs font-semibold">{sale.product}</span></td>
+                                                        <td className="px-6 py-4 text-gray-855">{sale.customer}</td>
+                                                        <td className="px-6 py-4"><span className="bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-full text-xs font-bold">{sale.product}</span></td>
                                                         <td className="px-6 py-4 text-right font-black text-green-600">Rp {sale.amount.toLocaleString('id-ID')}</td>
                                                         <td className="px-6 py-4 text-center space-x-3 whitespace-nowrap">
                                                             <button onClick={() => startEdit(sale)} className="text-blue-600 hover:text-blue-800 inline-block" title="Edit Transaksi"><Edit size={16} /></button>
-                                                            <button onClick={() => deleteSale(sale.id)} className="text-red-500 hover:text-red-700 inline-block" title="Hapus Transaksi"><Trash2 size={16} /></button>
+                                                            <button onClick={() => showConfirm("Yakin hapus transaksi ini secara permanen?", () => deleteSale(sale.id))} className="text-red-500 hover:text-red-700 inline-block" title="Hapus Transaksi"><Trash2 size={16} /></button>
                                                         </td>
                                                     </>
                                                 )}
@@ -1626,16 +1887,61 @@ function SalesTable({
                                 </tbody>
                             </table>
                         </div>
+
+                        <div className="block md:hidden space-y-3 p-3 bg-gray-50">
+                            {filteredSales.length === 0 ? (
+                                <p className="text-center py-6 text-gray-400 text-xs">Tidak ada transaksi penjualan yang cocok.</p>
+                            ) : (
+                                filteredSales.map(sale => (
+                                    <div key={sale.id} className="bg-white p-4 rounded-xl border shadow-sm space-y-2">
+                                        {editingId === sale.id ? (
+                                            <div className="space-y-3 animate-in slide-in-from-top-2">
+                                                <input type="date" value={editForm.date} onChange={e => setEditForm({ ...editForm, date: e.target.value })} className="border px-3 py-1.5 rounded-lg w-full text-xs bg-white text-gray-800" />
+                                                <input type="text" placeholder="Kustomer" value={editForm.customer} onChange={e => setEditForm({ ...editForm, customer: e.target.value })} className="border px-3 py-1.5 rounded-lg w-full text-xs bg-white text-gray-800" />
+                                                <input type="text" placeholder="Produk" value={editForm.product} onChange={e => setEditForm({ ...editForm, product: e.target.value })} className="border px-3 py-1.5 rounded-lg w-full text-xs bg-white text-gray-800" />
+                                                <input type="number" placeholder="Nominal" value={editForm.amount} onChange={e => setEditForm({ ...editForm, amount: e.target.value })} className="border px-3 py-1.5 rounded-lg w-full text-xs text-right font-bold bg-white text-gray-800" />
+                                                <div className="flex gap-2">
+                                                    <button onClick={() => saveEdit(sale.id)} className="flex-1 bg-blue-600 text-white font-bold py-1.5 rounded-lg text-xs">Simpan</button>
+                                                    <button onClick={() => setEditingId(null)} className="flex-1 bg-gray-400 text-white font-bold py-1.5 rounded-lg text-xs">Batal</button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2.5">
+                                                <div className="flex justify-between items-center border-b pb-1.5">
+                                                    <div>
+                                                        <span className="text-xs font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded-full">{sale.staffName}</span>
+                                                        <p className="text-[10px] text-gray-400 mt-1 font-semibold">{sale.date}</p>
+                                                    </div>
+                                                    <div className="space-x-3">
+                                                        <button onClick={() => startEdit(sale)} className="text-blue-600 hover:text-blue-800" title="Edit"><Edit size={14} /></button>
+                                                        <button onClick={() => showConfirm("Yakin hapus transaksi ini secara permanen?", () => deleteSale(sale.id))} className="text-red-500 hover:text-red-700" title="Hapus"><Trash2 size={14} /></button>
+                                                    </div>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-y-1 text-xs font-medium text-gray-600">
+                                                    <span>Kustomer:</span>
+                                                    <span className="text-right text-gray-800 font-bold">{sale.customer}</span>
+
+                                                    <span>Paket Modul:</span>
+                                                    <span className="text-right text-blue-600 font-semibold">{sale.product}</span>
+
+                                                    <span>Nominal Closing:</span>
+                                                    <span className="text-right text-green-600 font-black">Rp {sale.amount.toLocaleString('id-ID')}</span>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))
+                            )}
+                        </div>
+
                     </div>
                 </div>
             )}
 
-            {/* TAB CONTENT: OPERATIONAL EXPENSES (PENGELUARAN) */}
             {subTab === 'expenses' && (
                 <div className="space-y-6 animate-in fade-in">
-                    {/* Add Expense Form and Search Filters in a Grid */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        {/* Record Expense Box */}
+                        
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 h-fit">
                             <h3 className="font-extrabold text-blue-950 text-base border-b pb-3 mb-4 flex items-center gap-2">
                                 <PlusCircle size={20} className="text-blue-600" />
@@ -1650,7 +1956,7 @@ function SalesTable({
                                         type="date"
                                         value={newExpenseForm.date}
                                         onChange={e => setNewExpenseForm({ ...newExpenseForm, date: e.target.value })}
-                                        className="w-full border px-3 py-2 rounded-lg text-sm bg-gray-50"
+                                        className="w-full border px-3 py-2 rounded-lg text-sm bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:outline-none font-medium"
                                     />
                                 </div>
                                 <div className="space-y-1">
@@ -1658,7 +1964,7 @@ function SalesTable({
                                     <select
                                         value={newExpenseForm.category}
                                         onChange={e => setNewExpenseForm({ ...newExpenseForm, category: e.target.value })}
-                                        className="w-full border px-3 py-2 rounded-lg text-sm bg-white animate-in"
+                                        className="w-full border px-3 py-2 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none font-medium"
                                     >
                                         <option value="Operasional">Operasional</option>
                                         <option value="Marketing">Marketing</option>
@@ -1674,7 +1980,7 @@ function SalesTable({
                                         placeholder="Contoh: 200000"
                                         value={newExpenseForm.amount}
                                         onChange={e => setNewExpenseForm({ ...newExpenseForm, amount: e.target.value })}
-                                        className="w-full border px-3 py-2 rounded-lg text-sm bg-white"
+                                        className="w-full border px-3 py-2 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-gray-800"
                                     />
                                 </div>
                                 <div className="space-y-1">
@@ -1685,7 +1991,7 @@ function SalesTable({
                                         placeholder="Contoh: Biaya iklan Facebook Ads"
                                         value={newExpenseForm.notes}
                                         onChange={e => setNewExpenseForm({ ...newExpenseForm, notes: e.target.value })}
-                                        className="w-full border px-3 py-2 rounded-lg text-sm bg-white"
+                                        className="w-full border px-3 py-2 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-gray-800"
                                     />
                                 </div>
 
@@ -1698,24 +2004,23 @@ function SalesTable({
                             </form>
                         </div>
 
-                        {/* List and search operational expenses */}
                         <div className="lg:col-span-2 space-y-4 bg-white p-6 rounded-2xl border">
-                            <div className="bg-white rounded-xl flex flex-col sm:flex-row gap-4 items-center justify-between pb-4">
-                                <div className="w-full sm:w-1/2 flex items-center bg-gray-50 border rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-blue-500 bg-white">
+                            <div className="flex flex-col sm:flex-row gap-4 items-center justify-between pb-4 border-b">
+                                <div className="w-full sm:w-1/2 flex items-center bg-gray-50 border rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-blue-500 bg-white shadow-sm">
                                     <Search size={16} className="text-gray-400 mr-2" />
                                     <input
                                         type="text"
                                         placeholder="Cari keterangan pengeluaran..."
                                         value={expenseSearchQuery}
                                         onChange={e => setExpenseSearchQuery(e.target.value)}
-                                        className="bg-transparent border-none text-sm w-full focus:outline-none"
+                                        className="bg-transparent border-none text-sm w-full focus:outline-none text-gray-800"
                                     />
                                 </div>
 
                                 <select
                                     value={expenseCategoryFilter}
                                     onChange={e => setExpenseCategoryFilter(e.target.value)}
-                                    className="w-full sm:w-44 border px-3 py-2 rounded-lg text-sm bg-white"
+                                    className="w-full sm:w-44 border px-3 py-2 rounded-lg text-sm bg-white font-semibold"
                                 >
                                     <option value="">Semua Kategori</option>
                                     <option value="Operasional">Operasional</option>
@@ -1725,8 +2030,9 @@ function SalesTable({
                                 </select>
                             </div>
 
-                            <div className="bg-white rounded-xl border overflow-hidden">
-                                <div className="overflow-x-auto">
+                            <div className="bg-white rounded-xl border overflow-hidden animate-in">
+                                
+                                <div className="overflow-x-auto hidden md:block">
                                     <table className="w-full text-left text-sm text-gray-600 bg-white">
                                         <thead className="bg-gray-50 border-b">
                                             <tr>
@@ -1747,17 +2053,17 @@ function SalesTable({
                                                     <tr key={exp.id} className="border-b hover:bg-gray-50/50">
                                                         {editingExpenseId === exp.id ? (
                                                             <>
-                                                                <td className="px-4 py-2"><input type="date" value={editExpenseForm.date} onChange={e => setEditExpenseForm({ ...editExpenseForm, date: e.target.value })} className="border px-2 py-1 rounded w-full text-xs" /></td>
+                                                                <td className="px-4 py-2"><input type="date" value={editExpenseForm.date} onChange={e => setEditExpenseForm({ ...editExpenseForm, date: e.target.value })} className="border px-2 py-1 rounded w-full text-xs bg-white text-gray-800" /></td>
                                                                 <td className="px-4 py-2">
-                                                                    <select value={editExpenseForm.category} onChange={e => setEditExpenseForm({ ...editExpenseForm, category: e.target.value })} className="border px-2 py-1 rounded w-full text-xs bg-white">
+                                                                    <select value={editExpenseForm.category} onChange={e => setEditExpenseForm({ ...editExpenseForm, category: e.target.value })} className="border px-2 py-1 rounded w-full text-xs bg-white text-gray-850">
                                                                         <option value="Operasional">Operasional</option>
                                                                         <option value="Marketing">Marketing</option>
                                                                         <option value="Gaji">Gaji</option>
                                                                         <option value="Lain-lain">Lain-lain</option>
                                                                     </select>
                                                                 </td>
-                                                                <td className="px-4 py-2"><input type="text" value={editExpenseForm.notes} onChange={e => setEditExpenseForm({ ...editExpenseForm, notes: e.target.value })} className="border px-2 py-1 rounded w-full text-xs" /></td>
-                                                                <td className="px-4 py-2"><input type="number" value={editExpenseForm.amount} onChange={e => setEditExpenseForm({ ...editExpenseForm, amount: e.target.value })} className="border px-2 py-1 rounded w-full text-xs text-right font-bold" /></td>
+                                                                <td className="px-4 py-2"><input type="text" value={editExpenseForm.notes} onChange={e => setEditExpenseForm({ ...editExpenseForm, notes: e.target.value })} className="border px-2 py-1 rounded w-full text-xs bg-white text-gray-800" /></td>
+                                                                <td className="px-4 py-2"><input type="number" value={editExpenseForm.amount} onChange={e => setEditExpenseForm({ ...editExpenseForm, amount: e.target.value })} className="border px-2 py-1 rounded w-full text-xs text-right font-bold bg-white text-gray-800" /></td>
                                                                 <td className="px-4 py-2 text-center space-x-1.5 whitespace-nowrap">
                                                                     <button onClick={() => saveEditExpense(exp.id)} className="bg-blue-600 text-white font-bold px-2 py-1 rounded text-xs hover:bg-blue-700">Simpan</button>
                                                                     <button onClick={() => setEditingExpenseId(null)} className="bg-gray-400 text-white font-bold px-2 py-1 rounded text-xs hover:bg-gray-500">Batal</button>
@@ -1767,7 +2073,7 @@ function SalesTable({
                                                             <>
                                                                 <td className="px-4 py-3 whitespace-nowrap font-medium">{exp.date}</td>
                                                                 <td className="px-4 py-3">
-                                                                    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold ${exp.category === 'Marketing' ? 'bg-rose-50 text-rose-700' :
+                                                                    <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold ${exp.category === 'Marketing' ? 'bg-rose-50 text-rose-700' :
                                                                             exp.category === 'Gaji' ? 'bg-purple-50 text-purple-700' :
                                                                                 exp.category === 'Operasional' ? 'bg-blue-50 text-blue-700' :
                                                                                     'bg-gray-100 text-gray-700'
@@ -1775,11 +2081,11 @@ function SalesTable({
                                                                         {exp.category || 'Lain-lain'}
                                                                     </span>
                                                                 </td>
-                                                                <td className="px-4 py-3 text-gray-800 text-xs max-w-[200px] truncate" title={exp.notes}>{exp.notes || '-'}</td>
+                                                                <td className="px-4 py-3 text-gray-805 text-xs max-w-[200px] truncate" title={exp.notes}>{exp.notes || '-'}</td>
                                                                 <td className="px-4 py-3 text-right font-bold text-red-600">Rp {exp.amount.toLocaleString('id-ID')}</td>
                                                                 <td className="px-4 py-3 text-center space-x-2 whitespace-nowrap">
-                                                                    <button onClick={() => startEditExpense(exp)} className="text-blue-600 hover:text-blue-800 inline-block animate-pulse-once" title="Edit Pengeluaran"><Edit size={14} /></button>
-                                                                    <button onClick={() => deleteExpense(exp.id)} className="text-red-500 hover:text-red-700 inline-block" title="Hapus Pengeluaran"><Trash2 size={14} /></button>
+                                                                    <button onClick={() => startEditExpense(exp)} className="text-blue-600 hover:text-blue-800 inline-block" title="Edit Pengeluaran"><Edit size={14} /></button>
+                                                                    <button onClick={() => showConfirm("Yakin hapus pengeluaran ini?", () => deleteExpense(exp.id))} className="text-red-500 hover:text-red-700 inline-block" title="Hapus Pengeluaran"><Trash2 size={14} /></button>
                                                                 </td>
                                                             </>
                                                         )}
@@ -1789,6 +2095,61 @@ function SalesTable({
                                         </tbody>
                                     </table>
                                 </div>
+
+                                <div className="block md:hidden space-y-3 p-3 bg-gray-50">
+                                    {filteredExpenses.length === 0 ? (
+                                        <p className="text-center py-6 text-gray-400 text-xs">Belum ada pengeluaran operasional dicatat.</p>
+                                    ) : (
+                                        filteredExpenses.map(exp => (
+                                            <div key={exp.id} className="bg-white p-4 rounded-xl border shadow-sm space-y-2">
+                                                {editingExpenseId === exp.id ? (
+                                                    <div className="space-y-3 animate-in slide-in-from-top-2">
+                                                        <input type="date" value={editExpenseForm.date} onChange={e => setEditExpenseForm({ ...editExpenseForm, date: e.target.value })} className="border px-3 py-1.5 rounded-lg w-full text-xs bg-white text-gray-800" />
+                                                        <select value={editExpenseForm.category} onChange={e => setEditExpenseForm({ ...editExpenseForm, category: e.target.value })} className="border px-3 py-1.5 rounded-lg w-full text-xs bg-white text-gray-800">
+                                                            <option value="Operasional">Operasional</option>
+                                                            <option value="Marketing">Marketing</option>
+                                                            <option value="Gaji">Gaji</option>
+                                                            <option value="Lain-lain">Lain-lain</option>
+                                                        </select>
+                                                        <input type="text" placeholder="Keterangan" value={editExpenseForm.notes} onChange={e => setEditExpenseForm({ ...editExpenseForm, notes: e.target.value })} className="border px-3 py-1.5 rounded-lg w-full text-xs bg-white text-gray-800" />
+                                                        <input type="number" placeholder="Nominal" value={editExpenseForm.amount} onChange={e => setEditExpenseForm({ ...editExpenseForm, amount: e.target.value })} className="border px-3 py-1.5 rounded-lg w-full text-xs text-right font-bold bg-white text-gray-800" />
+                                                        <div className="flex gap-2">
+                                                            <button onClick={() => saveEditExpense(exp.id)} className="flex-1 bg-blue-600 text-white font-bold py-1.5 rounded-lg text-xs">Simpan</button>
+                                                            <button onClick={() => setEditingExpenseId(null)} className="flex-1 bg-gray-400 text-white font-bold py-1.5 rounded-lg text-xs">Batal</button>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="space-y-2.5">
+                                                        <div className="flex justify-between items-center border-b pb-1.5">
+                                                            <div>
+                                                                <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${exp.category === 'Marketing' ? 'bg-rose-50 text-rose-700' :
+                                                                    exp.category === 'Gaji' ? 'bg-purple-50 text-purple-700' :
+                                                                    exp.category === 'Operasional' ? 'bg-blue-50 text-blue-700' :
+                                                                    'bg-gray-100 text-gray-700'
+                                                                }`}>
+                                                                    {exp.category || 'Lain-lain'}
+                                                                </span>
+                                                                <p className="text-[10px] text-gray-400 mt-1 font-semibold">{exp.date}</p>
+                                                            </div>
+                                                            <div className="space-x-3">
+                                                                <button onClick={() => startEditExpense(exp)} className="text-blue-600 hover:text-blue-800" title="Edit"><Edit size={14} /></button>
+                                                                <button onClick={() => showConfirm("Yakin hapus pengeluaran ini?", () => deleteExpense(exp.id))} className="text-red-500 hover:text-red-700" title="Hapus"><Trash2 size={14} /></button>
+                                                            </div>
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-y-1 text-xs font-medium text-gray-600">
+                                                            <span>Keterangan:</span>
+                                                            <span className="text-right text-gray-800 font-bold truncate max-w-[150px] inline-block">{exp.notes || '-'}</span>
+
+                                                            <span>Nominal Keluar:</span>
+                                                            <span className="text-right text-red-600 font-black">Rp {exp.amount.toLocaleString('id-ID')}</span>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+
                             </div>
                         </div>
                     </div>
@@ -1798,7 +2159,108 @@ function SalesTable({
     );
 }
 
-function ManageCatalog({ catalogData, addProduct, updateProduct, deleteProduct }) {
+function ManagePreviews({ previewsData, updatePreview, showAlert }) {
+    const slots = ['cover', 'prota', 'isi'];
+    
+    const getSlotForm = (slot) => {
+        const current = previewsData.find(p => p.id === slot || p.slot === slot) || {};
+        return {
+            title: current.title || (slot === 'cover' ? 'Cover & Identitas' : slot === 'prota' ? 'Prota & Prosem' : 'Modul Ajar & LKPD'),
+            desc: current.desc || (slot === 'cover' ? 'Desain rapi, terstruktur, tinggal ganti nama guru & sekolah.' : slot === 'prota' ? 'Otomatis menghitung pekan efektif & JP.' : 'Langkah pembelajaran terperinci.'),
+            url: current.url || (slot === 'cover' ? 'cover.pdf' : slot === 'prota' ? 'prota.pdf' : 'isi.pdf')
+        };
+    };
+
+    const [forms, setForms] = useState({
+        cover: getSlotForm('cover'),
+        prota: getSlotForm('prota'),
+        isi: getSlotForm('isi')
+    });
+
+    useEffect(() => {
+        setForms({
+            cover: getSlotForm('cover'),
+            prota: getSlotForm('prota'),
+            isi: getSlotForm('isi')
+        });
+    }, [previewsData]);
+
+    const handleChange = (slot, field, value) => {
+        setForms(prev => ({
+            ...prev,
+            [slot]: {
+                ...prev[slot],
+                [field]: value
+            }
+        }));
+    };
+
+    const handleSave = async (slot) => {
+        await updatePreview(slot, forms[slot]);
+    };
+
+    return (
+        <div className="space-y-6 animate-in fade-in pt-4 md:pt-0">
+            <div>
+                <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight text-blue-950">Manajemen Dokumen Pratinjau</h1>
+                <p className="text-gray-500 text-sm mt-1">Atur judul, deskripsi, dan link berkas (PDF / Google Drive) contoh modul pendidik pada Landing Page.</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {slots.map(slot => (
+                    <div key={slot} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 flex flex-col justify-between animate-in">
+                        <div className="space-y-4">
+                            <div className="border-b pb-2 flex justify-between items-center">
+                                <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                                    Slot {slot === 'cover' ? '1 (Cover)' : slot === 'prota' ? '2 (Prota)' : '3 (Isi)'}
+                                </span>
+                            </div>
+
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Judul Pratinjau</label>
+                                    <input
+                                        type="text"
+                                        value={forms[slot].title}
+                                        onChange={e => handleChange(slot, 'title', e.target.value)}
+                                        className="w-full border px-3 py-2 rounded-lg text-sm bg-white font-medium text-gray-850"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Deskripsi Singkat</label>
+                                    <textarea
+                                        rows={3}
+                                        value={forms[slot].desc}
+                                        onChange={e => handleChange(slot, 'desc', e.target.value)}
+                                        className="w-full border px-3 py-2 rounded-lg text-sm bg-white font-medium text-gray-650"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">URL / Link Google Drive</label>
+                                    <input
+                                        type="text"
+                                        value={forms[slot].url}
+                                        onChange={e => handleChange(slot, 'url', e.target.value)}
+                                        className="w-full border px-3 py-2 rounded-lg text-xs bg-white font-bold text-blue-700"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={() => handleSave(slot)}
+                            className="mt-6 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-1.5"
+                        >
+                            <CheckCircle size={14} /> Simpan Slot {slot.toUpperCase()}
+                        </button>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function ManageCatalog({ catalogData, addProduct, updateProduct, deleteProduct, showConfirm }) {
     const [form, setForm] = useState({ name: '', jenjang: 'SD/MI', desc: '', price: '' });
     const [editId, setEditId] = useState(null);
 
@@ -1814,35 +2276,37 @@ function ManageCatalog({ catalogData, addProduct, updateProduct, deleteProduct }
     };
 
     return (
-        <div className="animate-in fade-in space-y-6">
-            <h1 className="text-2xl font-bold text-gray-800">Manajemen Katalog Landing Page</h1>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded-xl shadow-sm border h-fit">
+        <div className="animate-in fade-in space-y-6 pt-4 md:pt-0">
+            <h1 className="text-2xl font-bold text-gray-800 text-blue-950">Manajemen Katalog Landing Page</h1>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="bg-white p-6 rounded-xl shadow-sm border h-fit animate-in">
                     <h3 className="font-bold text-blue-900 border-b pb-2 mb-4">{editId ? 'Edit Produk' : 'Tambah Produk Baru'}</h3>
                     <form onSubmit={handleSubmit} className="space-y-4">
-                        <div><label className="text-xs font-bold text-gray-600">Nama Paket</label><input required type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full border px-3 py-1.5 rounded text-sm" /></div>
-                        <div><label className="text-xs font-bold text-gray-600">Jenjang</label><select value={form.jenjang} onChange={e => setForm({ ...form, jenjang: e.target.value })} className="w-full border px-3 py-1.5 rounded text-sm"><option>SD/MI</option><option>SMP/MTs</option><option>SMA/MA</option><option>Umum/Custom</option></select></div>
-                        <div><label className="text-xs font-bold text-gray-600">Deskripsi Singkat</label><textarea required rows="2" value={form.desc} onChange={e => setForm({ ...form, desc: e.target.value })} className="w-full border px-3 py-1.5 rounded text-sm"></textarea></div>
-                        <div><label className="text-xs font-bold text-gray-600">Harga (Rp)</label><input required type="number" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} className="w-full border px-3 py-1.5 rounded text-sm" /></div>
+                        <div><label className="text-xs font-bold text-gray-600">Nama Paket</label><input required type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full border px-3 py-1.5 rounded text-sm bg-white text-gray-800" /></div>
+                        <div><label className="text-xs font-bold text-gray-600">Jenjang</label><select value={form.jenjang} onChange={e => setForm({ ...form, jenjang: e.target.value })} className="w-full border px-3 py-1.5 rounded text-sm bg-white text-gray-800"><option>SD/MI</option><option>SMP/MTs</option><option>SMA/MA</option><option>Umum/Custom</option></select></div>
+                        <div><label className="text-xs font-bold text-gray-600">Deskripsi Singkat</label><textarea required rows="2" value={form.desc} onChange={e => setForm({ ...form, desc: e.target.value })} className="w-full border px-3 py-1.5 rounded text-sm bg-white text-gray-800"></textarea></div>
+                        <div><label className="text-xs font-bold text-gray-600">Harga (Rp)</label><input required type="number" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} className="w-full border px-3 py-1.5 rounded text-sm bg-white text-gray-800" /></div>
                         <div className="flex gap-2">
                             <button type="submit" className="flex-1 bg-blue-600 text-white font-bold py-2 rounded text-sm">{editId ? 'Update' : 'Tambah'}</button>
                             {editId && <button type="button" onClick={() => { setEditId(null); setForm({ name: '', jenjang: 'SD/MI', desc: '', price: '' }) }} className="bg-gray-400 text-white px-3 py-2 rounded text-sm">Batal</button>}
                         </div>
                     </form>
                 </div>
-                <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {catalogData.map(item => (
-                        <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border flex flex-col">
-                            <div className="flex justify-between items-start mb-2">
-                                <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded">{item.jenjang}</span>
-                                <div className="space-x-2">
-                                    <button onClick={() => { setEditId(item.id); setForm(item) }} className="text-blue-500 hover:bg-blue-50 p-1 rounded"><Edit size={14} /></button>
-                                    <button onClick={() => deleteProduct(item.id)} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 size={14} /></button>
+                        <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border flex flex-col justify-between animate-in">
+                            <div>
+                                <div className="flex justify-between items-start mb-2">
+                                    <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded">{item.jenjang}</span>
+                                    <div className="space-x-2">
+                                        <button onClick={() => { setEditId(item.id); setForm(item) }} className="text-blue-500 hover:bg-blue-50 p-1 rounded"><Edit size={14} /></button>
+                                        <button onClick={() => showConfirm("Yakin hapus produk ini dari halaman depan?", () => deleteProduct(item.id))} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 size={14} /></button>
+                                    </div>
                                 </div>
+                                <h4 className="font-bold text-gray-800">{item.name}</h4>
+                                <p className="text-xs text-gray-500 mt-1 mb-3">{item.desc}</p>
                             </div>
-                            <h4 className="font-bold text-gray-800">{item.name}</h4>
-                            <p className="text-xs text-gray-500 flex-grow mt-1 mb-3">{item.desc}</p>
-                            <span className="font-bold text-green-600 border-t pt-2">Rp {item.price.toLocaleString('id-ID')}</span>
+                            <span className="font-bold text-green-600 border-t pt-2 block">Rp {item.price.toLocaleString('id-ID')}</span>
                         </div>
                     ))}
                     {catalogData.length === 0 && <p className="text-gray-400 text-sm text-center py-8 w-full col-span-2">Belum ada produk di katalog. Landing page menggunakan data dummy sementara.</p>}
@@ -1862,30 +2326,30 @@ function Leaderboard({ salesData }) {
     const ranking = Object.keys(stats).map(name => ({ name, total: stats[name] })).sort((a, b) => b.total - a.total);
 
     return (
-        <div className="animate-in fade-in space-y-6 max-w-2xl mx-auto">
-            <div className="text-center mb-8">
-                <Trophy size={48} className="mx-auto text-yellow-500 mb-2" />
-                <h1 className="text-2xl font-bold text-gray-800">Papan Peringkat Sales</h1>
-                <p className="text-gray-500">Peringkat berdasarkan akumulasi total omzet.</p>
+        <div className="animate-in fade-in space-y-6 max-w-2xl mx-auto pt-4 md:pt-0">
+            <div className="text-center mb-8 animate-in">
+                <Trophy size={48} className="mx-auto text-yellow-500 mb-2 animate-bounce" />
+                <h1 className="text-2xl font-bold text-gray-800 text-blue-950">Papan Peringkat Sales</h1>
+                <p className="text-gray-500">Peringkat berdasarkan akumulasi total omzet closing.</p>
             </div>
             <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
                 {ranking.map((staff, idx) => (
                     <div key={idx} className={`flex items-center p-4 border-b last:border-0 ${idx === 0 ? 'bg-yellow-50' : idx === 1 ? 'bg-gray-50' : idx === 2 ? 'bg-orange-50' : 'bg-white'}`}>
                         <div className="w-10 font-bold text-gray-400 text-lg">#{idx + 1}</div>
-                        <div className="flex-grow font-bold text-gray-800 flex items-center gap-2">
+                        <div className="flex-grow font-bold text-gray-800 flex items-center gap-2 text-sm sm:text-base">
                             {staff.name}
-                            {idx === 0 && <span className="bg-yellow-400 text-white text-[10px] px-2 py-0.5 rounded-full uppercase">MVP</span>}
+                            {idx === 0 && <span className="bg-yellow-400 text-white text-[10px] px-2 py-0.5 rounded-full uppercase font-bold">MVP</span>}
                         </div>
-                        <div className="font-bold text-green-600 text-lg">Rp {staff.total.toLocaleString('id-ID')}</div>
+                        <div className="font-bold text-green-600 text-base sm:text-lg">Rp {staff.total.toLocaleString('id-ID')}</div>
                     </div>
                 ))}
-                {ranking.length === 0 && <div className="p-8 text-center text-gray-400">Belum ada data penjualan.</div>}
+                {ranking.length === 0 && <div className="p-8 text-center text-gray-400 animate-in">Belum ada data penjualan.</div>}
             </div>
         </div>
     );
 }
 
-function CommissionReport({ salesData }) {
+function CommissionReport({ salesData, payoutsData, usersData, payStaffCommission, showAlert, showConfirm }) {
     const today = new Date();
     const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
     const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
@@ -1915,32 +2379,242 @@ function CommissionReport({ salesData }) {
         return { name, total: staffStats[name].total, komisi, bonus, kelipatanTotal, totalPayout: komisi + bonus };
     });
 
+    const staffList = usersData.filter(u => u.role === 'staff');
+    const [selectedStaff, setSelectedStaff] = useState('');
+    const [payStart, setPayStart] = useState(firstDay);
+    const [payEnd, setPayEnd] = useState(lastDay);
+    const [calcResult, setCalcResult] = useState(null);
+
+    const calculateUnpaid = () => {
+        if (!selectedStaff) {
+            showAlert("Silakan pilih staff terlebih dahulu!", "Peringatan", "warning");
+            return;
+        }
+
+        const staffSales = salesData.filter(s => 
+            s.staffName === selectedStaff && 
+            s.date >= payStart && 
+            s.date <= payEnd
+        );
+
+        const unpaidSales = staffSales.filter(s => s.paymentStatus !== 'paid');
+
+        const unpaidCommission = unpaidSales.reduce((acc, curr) => acc + (curr.amount * 0.10), 0);
+
+        const dailyUnpaid = {};
+        unpaidSales.forEach(sale => {
+            if (!dailyUnpaid[sale.date]) dailyUnpaid[sale.date] = 0;
+            dailyUnpaid[sale.date] += sale.amount;
+        });
+
+        let unpaidBonus = 0;
+        let multipliers = 0;
+        Object.values(dailyUnpaid).forEach(amount => {
+            if (amount >= 1000000) {
+                const mult = Math.floor(amount / 1000000);
+                unpaidBonus += 50000 * mult;
+                multipliers += mult;
+            }
+        });
+
+        const totalPayable = unpaidCommission + unpaidBonus;
+
+        setCalcResult({
+            salesCount: unpaidSales.length,
+            commission: unpaidCommission,
+            bonus: unpaidBonus,
+            multipliers,
+            total: totalPayable,
+            salesToUpdate: unpaidSales
+        });
+    };
+
+    const executePayment = () => {
+        if (!calcResult || calcResult.total === 0) {
+            showAlert("Nominal pembayaran harus lebih besar dari Rp 0!", "Peringatan", "warning");
+            return;
+        }
+
+        showConfirm(
+            `Tandai komisi ${selectedStaff} periode ${payStart} s/d ${payEnd} sebesar Rp ${calcResult.total.toLocaleString('id-ID')} sebagai TELAH DIBAYAR?`,
+            async () => {
+                await payStaffCommission(selectedStaff, payStart, payEnd, calcResult.total, calcResult.salesToUpdate);
+                setCalcResult(null);
+            },
+            "Konfirmasi Pembayaran Gaji"
+        );
+    };
+
     return (
-        <div className="animate-in fade-in space-y-6">
-            <h1 className="text-2xl font-bold text-gray-800">Laporan Komisi & Bonus</h1>
-            <div className="bg-white p-4 rounded-xl border flex gap-4">
-                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="border px-3 py-1.5 rounded text-sm" />
-                <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="border px-3 py-1.5 rounded text-sm" />
+        <div className="animate-in fade-in space-y-6 pt-4 md:pt-0">
+            <div>
+                <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight text-blue-950">Gaji & Komisi Sales</h1>
+                <p className="text-gray-500 text-sm mt-1">Rekap performa omzet dan rincian pelunasan gaji/bonus komisi staff pendidik.</p>
             </div>
-            <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                        <thead className="bg-blue-900 text-white">
-                            <tr><th className="px-4 py-3">Staff</th><th className="px-4 py-3 text-right">Omzet</th><th className="px-4 py-3 text-right">Komisi (10%)</th><th className="px-4 py-3 text-right">Bonus (Kelipatan 1Jt)</th><th className="px-4 py-3 text-right bg-blue-800">Total Cair</th></tr>
-                        </thead>
-                        <tbody>
-                            {reportData.map((d, i) => (
-                                <tr key={i} className="border-b"><td className="px-4 py-3 font-bold">{d.name}</td><td className="px-4 py-3 text-right whitespace-nowrap">Rp {d.total.toLocaleString()}</td><td className="px-4 py-3 text-right text-blue-600 whitespace-nowrap">Rp {d.komisi.toLocaleString()}</td><td className="px-4 py-3 text-right text-amber-600 whitespace-nowrap">Rp {d.bonus.toLocaleString()} ({d.kelipatanTotal}x)</td><td className="px-4 py-3 text-right font-bold text-green-600 bg-green-50/30 whitespace-nowrap">Rp {d.totalPayout.toLocaleString()}</td></tr>
-                            ))}
-                        </tbody>
-                    </table>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 h-fit animate-in">
+                    <h3 className="font-extrabold text-blue-950 text-base border-b pb-3 mb-4 flex items-center gap-2">
+                        <PlusCircle size={20} className="text-blue-600" />
+                        <span>Pencairan Gaji & Komisi</span>
+                    </h3>
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-xs font-bold text-gray-600 mb-1">Pilih Staff Sales</label>
+                            <select
+                                value={selectedStaff}
+                                onChange={e => { setSelectedStaff(e.target.value); setCalcResult(null); }}
+                                className="w-full border px-3 py-2 rounded-lg text-sm bg-white text-gray-850 font-bold"
+                            >
+                                <option value="">-- Pilih Staff --</option>
+                                {staffList.map((st, i) => (
+                                    <option key={i} value={st.name}>{st.name}</option>
+                                ))}
+                                {staffList.length === 0 && Array.from(new Set(salesData.map(s => s.staffName))).map((st, i) => (
+                                    <option key={i} value={st}>{st}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs font-bold text-gray-600 mb-1">Tanggal Mulai</label>
+                                <input
+                                    type="date"
+                                    value={payStart}
+                                    onChange={e => { setPayStart(e.target.value); setCalcResult(null); }}
+                                    className="w-full border px-3 py-2 rounded-lg text-xs bg-gray-50 text-gray-850 font-bold"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-600 mb-1">Tanggal Selesai</label>
+                                <input
+                                    type="date"
+                                    value={payEnd}
+                                    onChange={e => { setPayEnd(e.target.value); setCalcResult(null); }}
+                                    className="w-full border px-3 py-2 rounded-lg text-xs bg-gray-50 text-gray-850 font-bold"
+                                />
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={calculateUnpaid}
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl shadow-md transition text-xs flex items-center justify-center gap-2"
+                        >
+                            <RefreshCw size={14} /> Hitung & Tinjau Komisi
+                        </button>
+
+                        {calcResult && (
+                            <div className="mt-4 p-4 bg-gray-50 border rounded-xl space-y-3 animate-in slide-in-from-top-2">
+                                <h4 className="text-xs font-extrabold text-gray-700 uppercase tracking-wider border-b pb-1.5">Rincian Komisi</h4>
+                                <div className="space-y-1.5 text-xs font-medium text-gray-600">
+                                    <div className="flex justify-between">
+                                        <span>Jumlah Closing:</span>
+                                        <span className="font-bold text-gray-800">{calcResult.salesCount} Transaksi</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>Komisi Dasar (10%):</span>
+                                        <span className="font-bold text-gray-800">Rp {calcResult.commission.toLocaleString('id-ID')}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>Bonus Kelipatan 1Jt:</span>
+                                        <span className="font-bold text-gray-800">Rp {calcResult.bonus.toLocaleString('id-ID')} ({calcResult.multipliers}x)</span>
+                                    </div>
+                                    <div className="flex justify-between border-t pt-2 text-sm font-black text-gray-850">
+                                        <span>Total Gaji:</span>
+                                        <span className="text-green-600">Rp {calcResult.total.toLocaleString('id-ID')}</span>
+                                    </div>
+                                </div>
+
+                                {calcResult.total > 0 ? (
+                                    <button
+                                        onClick={executePayment}
+                                        className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2.5 rounded-xl transition text-xs flex items-center justify-center gap-2 shadow-sm animate-pulse"
+                                    >
+                                        <CheckCircle size={14} /> Tandai Telah Dibayar
+                                    </button>
+                                ) : (
+                                    <p className="text-[10px] text-gray-400 font-semibold text-center italic mt-2">Semua komisi periode ini sudah terbayar!</p>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="lg:col-span-2 space-y-4 bg-white p-6 rounded-2xl border animate-in">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b">
+                        <span className="text-sm font-extrabold text-blue-950">Rekap Gaji / Komisi Periode Penjualan</span>
+                        <div className="flex gap-2 w-full sm:w-auto">
+                            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="border px-3 py-1.5 rounded-lg text-xs bg-gray-50 flex-1 sm:flex-initial" />
+                            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="border px-3 py-1.5 rounded-lg text-xs bg-gray-50 flex-1 sm:flex-initial" />
+                        </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-xl border">
+                        
+                        <table className="w-full text-left text-sm hidden md:table bg-white">
+                            <thead className="bg-blue-900 text-white">
+                                <tr>
+                                    <th className="px-4 py-3.5 font-bold">Staff</th>
+                                    <th className="px-4 py-3.5 text-right font-bold">Omzet</th>
+                                    <th className="px-4 py-3.5 text-right font-bold">Komisi (10%)</th>
+                                    <th className="px-4 py-3.5 text-right font-bold">Bonus (Kelipatan 1Jt)</th>
+                                    <th className="px-4 py-3.5 text-right font-bold bg-blue-850">Total Cair</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {reportData.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={5} className="text-center py-8 text-gray-400">Tidak ada penjualan pada periode ini.</td>
+                                    </tr>
+                                ) : (
+                                    reportData.map((d, i) => (
+                                        <tr key={i} className="border-b hover:bg-gray-50/50">
+                                            <td className="px-4 py-3 font-bold text-gray-800">{d.name}</td>
+                                            <td className="px-4 py-3 text-right font-semibold whitespace-nowrap">Rp {d.total.toLocaleString('id-ID')}</td>
+                                            <td className="px-4 py-3 text-right text-blue-600 font-semibold whitespace-nowrap">Rp {d.komisi.toLocaleString('id-ID')}</td>
+                                            <td className="px-4 py-3 text-right text-amber-600 font-semibold whitespace-nowrap">Rp {d.bonus.toLocaleString('id-ID')} ({d.kelipatanTotal}x)</td>
+                                            <td className="px-4 py-3 text-right font-extrabold text-green-600 bg-green-50/30 whitespace-nowrap">Rp {d.totalPayout.toLocaleString('id-ID')}</td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+
+                        <div className="block md:hidden space-y-3 p-3 bg-gray-50">
+                            {reportData.length === 0 ? (
+                                <p className="text-center py-8 text-gray-400 text-xs">Tidak ada penjualan pada periode ini.</p>
+                            ) : (
+                                reportData.map((d, i) => (
+                                    <div key={i} className="bg-white p-4 rounded-xl border shadow-sm space-y-2">
+                                        <div className="flex justify-between items-center border-b pb-1.5">
+                                            <span className="font-bold text-gray-800 text-sm">{d.name}</span>
+                                            <span className="text-xs bg-green-50 text-green-700 font-extrabold px-2 py-0.5 rounded-full text-[10px]">Total: Rp {d.totalPayout.toLocaleString('id-ID')}</span>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-y-1 text-xs text-gray-600 font-medium">
+                                            <span>Omzet Penjualan:</span>
+                                            <span className="text-right font-bold text-gray-800">Rp {d.total.toLocaleString('id-ID')}</span>
+
+                                            <span>Komisi Dasar (10%):</span>
+                                            <span className="text-right text-blue-600 font-bold">Rp {d.komisi.toLocaleString('id-ID')}</span>
+
+                                            <span>Bonus Kelipatan 1Jt:</span>
+                                            <span className="text-right text-amber-600 font-bold">Rp {d.bonus.toLocaleString('id-ID')} ({d.kelipatanTotal}x)</span>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+
+                    </div>
                 </div>
             </div>
         </div>
     );
 }
 
-function ManageStaff({ usersData, addStaffUser, deleteStaffUser }) {
+function ManageStaff({ usersData, addStaffUser, deleteStaffUser, showConfirm }) {
     const [form, setForm] = useState({ name: '', username: '', password: '', role: 'staff' });
     const staffList = usersData.filter(u => u.role === 'staff');
 
@@ -1951,26 +2625,56 @@ function ManageStaff({ usersData, addStaffUser, deleteStaffUser }) {
     };
 
     return (
-        <div className="animate-in fade-in space-y-6">
-            <h1 className="text-2xl font-bold text-gray-800">Manajemen Akun Staff</h1>
+        <div className="animate-in fade-in space-y-6 pt-4 md:pt-0">
+            <h1 className="text-2xl font-bold text-gray-800 text-blue-950">Manajemen Akun Staff</h1>
             <div className="grid md:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded-xl border h-fit">
+                <div className="bg-white p-6 rounded-xl border h-fit shadow-sm animate-in">
                     <form onSubmit={handleSubmit} className="space-y-4">
-                        <input required type="text" placeholder="Nama Lengkap" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full border px-3 py-2 rounded text-sm" />
-                        <input required type="text" placeholder="Username" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} className="w-full border px-3 py-2 rounded text-sm" />
-                        <input required type="text" placeholder="Password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className="w-full border px-3 py-2 rounded text-sm" />
+                        <input required type="text" placeholder="Nama Lengkap" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full border px-3 py-2 rounded text-sm bg-white text-gray-800" />
+                        <input required type="text" placeholder="Username" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} className="w-full border px-3 py-2 rounded text-sm bg-white text-gray-800" />
+                        <input required type="text" placeholder="Password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className="w-full border px-3 py-2 rounded text-sm bg-white text-gray-800" />
                         <button type="submit" className="w-full bg-blue-600 text-white font-bold py-2 rounded text-sm">Tambah Staff</button>
                     </form>
                 </div>
                 <div className="md:col-span-2 bg-white rounded-xl border overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-4 py-3">Nama</th><th className="px-4 py-3">User/Pass</th><th className="px-4 py-3">Aksi</th></tr></thead>
+                    
+                    <div className="overflow-x-auto hidden md:block">
+                        <table className="w-full text-left text-sm bg-white">
+                            <thead className="bg-gray-50 border-b">
+                                <tr>
+                                    <th className="px-4 py-3">Nama</th>
+                                    <th className="px-4 py-3">User / Pass</th>
+                                    <th className="px-4 py-3">Aksi</th>
+                                </tr>
+                            </thead>
                             <tbody>
                                 {staffList.map(s => (
-                                    <tr key={s.id} className="border-b"><td className="px-4 py-3 font-bold">{s.name}</td><td className="px-4 py-3 text-xs">{s.username} / {s.password}</td><td className="px-4 py-3"><button onClick={() => deleteStaffUser(s.id)} className="text-red-500"><Trash2 size={16} /></button></td></tr>
+                                    <tr key={s.id} className="border-b">
+                                        <td className="px-4 py-3 font-bold">{s.name}</td>
+                                        <td className="px-4 py-3 text-xs">{s.username} / {s.password}</td>
+                                        <td className="px-4 py-3">
+                                            <button onClick={() => showConfirm("Apakah Anda yakin ingin menghapus akun staff ini?", () => deleteStaffUser(s.id))} className="text-red-500"><Trash2 size={16} /></button>
+                                        </td>
+                                    </tr>
                                 ))}
-                            </tbody></table>
+                            </tbody>
+                        </table>
                     </div>
+
+                    <div className="block md:hidden space-y-2 p-2 bg-gray-50">
+                        {staffList.map(s => (
+                            <div key={s.id} className="bg-white p-3 rounded-lg border flex justify-between items-center shadow-sm">
+                                <div className="space-y-1">
+                                    <span className="font-bold text-sm text-gray-800">{s.name}</span>
+                                    <p className="text-[11px] text-gray-500 font-semibold">User: {s.username} | Pass: {s.password}</p>
+                                </div>
+                                <button onClick={() => showConfirm("Apakah Anda yakin ingin menghapus akun staff ini?", () => deleteStaffUser(s.id))} className="text-red-500 p-2 hover:bg-red-50 rounded transition">
+                                    <Trash2 size={16} />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+
                 </div>
             </div>
         </div>
@@ -1984,7 +2688,6 @@ function StaffInputForm({ addSale, userName, setTab, catalogData }) {
     const handleSubmit = (e) => {
         e.preventDefault();
         addSale({ ...form, staffName: userName, amount: Number(form.amount) });
-        alert('Tersimpan!');
         setForm({ ...form, customer: '', amount: '', notes: '' });
         setTab('my_sales');
     };
@@ -1992,18 +2695,226 @@ function StaffInputForm({ addSale, userName, setTab, catalogData }) {
     const productOptions = catalogData.length > 0 ? catalogData.map(c => c.name) : ['Modul SD/MI', 'Modul SMP/MTs', 'Modul SMA/MA', 'Paket Custom'];
 
     return (
-        <div className="max-w-2xl mx-auto animate-in fade-in">
-            <h1 className="text-2xl font-bold mb-6">Lapor Closingan Hari Ini 🎉</h1>
-            <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl border space-y-4">
-                <input required type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} className="w-full border px-3 py-2 rounded" />
-                <input required type="text" placeholder="Nama Kustomer / Instansi" value={form.customer} onChange={e => setForm({ ...form, customer: e.target.value })} className="w-full border px-3 py-2 rounded" />
-                <select value={form.product} onChange={e => setForm({ ...form, product: e.target.value })} className="w-full border px-3 py-2 rounded bg-white">
-                    {productOptions.map((opt, i) => <option key={i}>{opt}</option>)}
-                </select>
-                <input required type="number" placeholder="Nominal Rp" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} className="w-full border px-3 py-2 rounded" />
-                <textarea placeholder="Catatan opsional..." value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className="w-full border px-3 py-2 rounded"></textarea>
-                <button type="submit" className="w-full bg-green-500 text-white font-bold py-3 rounded text-lg">Simpan Closingan</button>
+        <div className="max-w-2xl mx-auto animate-in fade-in pt-4 md:pt-0">
+            <h1 className="text-2xl font-bold mb-6 text-gray-850">Lapor Closingan Hari Ini 🎉</h1>
+            <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl border space-y-4 shadow-sm">
+                <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">Tanggal Transaksi</label>
+                    <input required type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} className="w-full border px-3 py-2 rounded bg-white text-sm text-gray-850" />
+                </div>
+                <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">Nama Kustomer / Instansi Sekolah</label>
+                    <input required type="text" placeholder="Masukkan nama guru / nama sekolah" value={form.customer} onChange={e => setForm({ ...form, customer: e.target.value })} className="w-full border px-3 py-2 rounded bg-white text-sm text-gray-850" />
+                </div>
+                <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">Pilihan Produk Modul</label>
+                    <select value={form.product} onChange={e => setForm({ ...form, product: e.target.value })} className="w-full border px-3 py-2 rounded bg-white text-sm text-gray-850">
+                        {productOptions.map((opt, i) => <option key={i}>{opt}</option>)}
+                    </select>
+                </div>
+                <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">Nominal Rupiah (Rp)</label>
+                    <input required type="number" placeholder="Contoh: 150000" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} className="w-full border px-3 py-2 rounded bg-white text-sm text-gray-850" />
+                </div>
+                <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">Catatan Tambahan (Opsional)</label>
+                    <textarea placeholder="Tulis catatan jika ada..." value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className="w-full border px-3 py-2 rounded bg-white text-sm text-gray-850"></textarea>
+                </div>
+                <button type="submit" className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded text-lg transition shadow">Simpan Closingan</button>
             </form>
+        </div>
+    );
+}
+
+function StaffCommissions({ staffName, salesData, payoutsData }) {
+    const mySales = salesData.filter(s => s.staffName === staffName);
+    const myPayouts = payoutsData.filter(p => p.staffName === staffName);
+
+    const totalPaid = myPayouts.reduce((acc, curr) => acc + curr.amount, 0);
+    const unpaidSales = mySales.filter(s => s.paymentStatus !== 'paid');
+    const unpaidCommissionAmount = unpaidSales.reduce((acc, curr) => acc + (curr.amount * 0.10), 0);
+
+    const dailyUnpaidSales = {};
+    unpaidSales.forEach(sale => {
+        if (!dailyUnpaidSales[sale.date]) dailyUnpaidSales[sale.date] = 0;
+        dailyUnpaidSales[sale.date] += sale.amount;
+    });
+
+    let unpaidBonusAmount = 0;
+    Object.values(dailyUnpaidSales).forEach(amount => {
+        if (amount >= 1000000) {
+            unpaidBonusAmount += 50000 * Math.floor(amount / 1000000);
+        }
+    });
+
+    const totalUnpaid = unpaidCommissionAmount + unpaidBonusAmount;
+
+    return (
+        <div className="space-y-6 animate-in fade-in pt-4 md:pt-0">
+            <div>
+                <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight text-blue-950">Laporan Komisi Saya</h1>
+                <p className="text-gray-500 text-sm mt-1">Pantau rincian komisi, bonus target harian, dan riwayat log pencairan gaji Anda.</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 flex items-center justify-between">
+                    <div className="space-y-2">
+                        <p className="text-xs text-amber-500 font-bold uppercase tracking-wider">Komisi Belum Dibayar (Unpaid)</p>
+                        <h3 className="text-2xl font-black text-gray-850">Rp {totalUnpaid.toLocaleString('id-ID')}</h3>
+                        <div className="text-[11px] text-gray-500 font-medium space-y-0.5">
+                            <div className="flex justify-between gap-4">
+                                <span>Komisi Dasar (10%):</span>
+                                <span className="font-bold text-gray-750">Rp {unpaidCommissionAmount.toLocaleString('id-ID')}</span>
+                            </div>
+                            <div className="flex justify-between gap-4">
+                                <span>Bonus Harian:</span>
+                                <span className="font-bold text-gray-750">Rp {unpaidBonusAmount.toLocaleString('id-ID')}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shadow-inner"><Clock size={28} /></div>
+                </div>
+
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 flex items-center justify-between">
+                    <div className="space-y-2">
+                        <p className="text-xs text-green-500 font-bold uppercase tracking-wider">Komisi Sudah Dibayar (Paid)</p>
+                        <h3 className="text-2xl font-black text-gray-850">Rp {totalPaid.toLocaleString('id-ID')}</h3>
+                        <p className="text-[11px] text-gray-500 font-medium flex items-center gap-1">
+                            <span className="bg-green-50 text-green-700 px-2 py-0.5 rounded-full font-bold">Lunas</span>
+                            <span>Telah ditransfer oleh Owner</span>
+                        </p>
+                    </div>
+                    <div className="w-14 h-14 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center shadow-inner"><CheckCircle size={28} /></div>
+                </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 space-y-4">
+                <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <Award size={20} className="text-blue-500" />
+                    <span>Riwayat Pencairan Gaji</span>
+                </h3>
+
+                <div className="overflow-hidden rounded-xl border">
+                    <table className="w-full text-left text-sm hidden md:table bg-white">
+                        <thead className="bg-blue-900 text-white">
+                            <tr>
+                                <th className="px-4 py-3.5 font-bold">Tanggal Cair</th>
+                                <th className="px-4 py-3.5 font-bold">Periode Kerja</th>
+                                <th className="px-4 py-3.5 text-right font-bold">Jumlah Pencairan</th>
+                                <th className="px-4 py-3.5 text-center font-bold">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {myPayouts.length === 0 ? (
+                                <tr>
+                                    <td colSpan={4} className="text-center py-8 text-gray-400">Belum ada riwayat pencairan komisi.</td>
+                                </tr>
+                            ) : (
+                                myPayouts.map((pay, i) => (
+                                    <tr key={i} className="border-b hover:bg-gray-50/50">
+                                        <td className="px-4 py-4 font-semibold text-gray-800">{pay.payoutDate}</td>
+                                        <td className="px-4 py-4 text-gray-600">{pay.startDate} s/d {pay.endDate}</td>
+                                        <td className="px-4 py-4 text-right font-bold text-green-600">Rp {pay.amount.toLocaleString('id-ID')}</td>
+                                        <td className="px-4 py-4 text-center">
+                                            <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-bold bg-green-50 text-green-700">Telah Dibayar</span>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+
+                    <div className="block md:hidden space-y-3 p-3 bg-gray-50">
+                        {myPayouts.length === 0 ? (
+                            <p className="text-center py-6 text-gray-400 text-xs">Belum ada riwayat pencairan komisi.</p>
+                        ) : (
+                            myPayouts.map((pay, i) => (
+                                <div key={i} className="bg-white p-4 rounded-xl border shadow-sm space-y-2.5">
+                                    <div className="flex justify-between items-center border-b pb-1.5">
+                                        <span className="font-bold text-gray-800 text-sm">Pencairan Gaji</span>
+                                        <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-50 text-green-700">Lunas</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-y-1 text-xs text-gray-600 font-medium">
+                                        <span>Tanggal Cair:</span>
+                                        <span className="text-right text-gray-800 font-bold">{pay.payoutDate}</span>
+
+                                        <span>Periode:</span>
+                                        <span className="text-right text-gray-800">{pay.startDate} s/d {pay.endDate}</span>
+
+                                        <span className="border-t pt-1 font-bold text-gray-800">Jumlah Cair:</span>
+                                        <span className="text-right border-t pt-1 font-black text-green-600">Rp {pay.amount.toLocaleString('id-ID')}</span>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 space-y-4">
+                <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <Clock size={20} className="text-amber-500" />
+                    <span>Daftar Transaksi Belum Dibayar (Pending)</span>
+                </h3>
+
+                <div className="overflow-hidden rounded-xl border">
+                    <table className="w-full text-left text-sm hidden md:table bg-white">
+                        <thead className="bg-amber-500 text-white">
+                            <tr>
+                                <th className="px-4 py-3.5 font-bold">Tanggal</th>
+                                <th className="px-4 py-3.5 font-bold">Kustomer</th>
+                                <th className="px-4 py-3.5 font-bold">Produk</th>
+                                <th className="px-4 py-3.5 text-right font-bold">Nominal</th>
+                                <th className="px-4 py-3.5 text-center font-bold">Estimasi Komisi (10%)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {unpaidSales.length === 0 ? (
+                                <tr>
+                                    <td colSpan={5} className="text-center py-8 text-gray-400">Semua closingan Anda telah dibayarkan! Keren! 🚀</td>
+                                </tr>
+                            ) : (
+                                unpaidSales.map((sale, i) => (
+                                    <tr key={i} className="border-b hover:bg-gray-50/50">
+                                        <td className="px-4 py-4 text-gray-600">{sale.date}</td>
+                                        <td className="px-4 py-4 font-bold text-gray-850">{sale.customer}</td>
+                                        <td className="px-4 py-4"><span className="bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-full text-xs font-bold">{sale.product}</span></td>
+                                        <td className="px-4 py-4 text-right font-semibold">Rp {sale.amount.toLocaleString('id-ID')}</td>
+                                        <td className="px-4 py-4 text-center font-black text-amber-600">Rp {(sale.amount * 0.10).toLocaleString('id-ID')}</td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+
+                    <div className="block md:hidden space-y-3 p-3 bg-gray-50">
+                        {unpaidSales.length === 0 ? (
+                            <p className="text-center py-6 text-gray-400 text-xs">Semua closingan Anda telah dibayarkan! Keren! 🚀</p>
+                        ) : (
+                            unpaidSales.map((sale, i) => (
+                                <div key={i} className="bg-white p-4 rounded-xl border shadow-sm space-y-2.5">
+                                    <div className="flex justify-between items-center border-b pb-1.5">
+                                        <span className="font-bold text-gray-800 text-sm">{sale.customer}</span>
+                                        <span className="text-[10px] text-gray-500 font-medium">{sale.date}</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-y-1 text-xs text-gray-600 font-medium">
+                                        <span>Produk:</span>
+                                        <span className="text-right">
+                                            <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-[10px] font-bold">{sale.product}</span>
+                                        </span>
+
+                                        <span>Nominal:</span>
+                                        <span className="text-right text-gray-800 font-bold">Rp {sale.amount.toLocaleString('id-ID')}</span>
+
+                                        <span className="border-t pt-1 font-bold text-amber-600">Est. Komisi (10%):</span>
+                                        <span className="text-right border-t pt-1 font-black text-amber-600">Rp {(sale.amount * 0.10).toLocaleString('id-ID')}</span>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }
