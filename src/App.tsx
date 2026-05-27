@@ -970,6 +970,8 @@ function Dashboard({
                             <SidebarBtn icon={<Users />} label="Manajemen Staff" active={activeTab === 'manage_staff'} onClick={() => { setActiveTab('manage_staff'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<MessageCircle />} label="Pusat Leads (CRM)" active={activeTab === 'manage_leads'} onClick={() => { setActiveTab('manage_leads'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Lock />} label="Favicon & Brand" active={activeTab === 'brand_settings'} onClick={() => { setActiveTab('brand_settings'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<Package />} label="Atur File Drive" active={activeTab === 'manage_admin_drive'} onClick={() => { setActiveTab('manage_admin_drive'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<Clock />} label="Log Akses Drive" active={activeTab === 'manage_admin_logs'} onClick={() => { setActiveTab('manage_admin_logs'); setIsSidebarOpen(false); }} />
                         </>
                     )}
                     {user.role === 'staff' && (
@@ -1034,8 +1036,14 @@ function Dashboard({
                     {user.role === 'admin' && activeTab === 'brand_settings' && (
                         <ManageBrandSettings appSettings={appSettings} db={db} appId={appId} showAlert={showAlert} />
                     )}
+                    {user.role === 'admin' && activeTab === 'manage_admin_drive' && (
+                        <ManageAdminDrive db={db} appId={appId} showAlert={showAlert} showConfirm={showConfirm} />
+                    )}
+                    {user.role === 'admin' && activeTab === 'manage_admin_logs' && (
+                        <ManageAdminLogs db={db} appId={appId} />
+                    )}
                     {user.role === 'staff' && activeTab === 'resource_hub' && (
-                        <StaffResourceHub catalogData={catalogData} showAlert={showAlert} />
+                        <StaffResourceHub db={db} appId={appId} user={user} showAlert={showAlert} />
                     )}
                     {user.role === 'staff' && activeTab === 'my_ledger' && (
                         <StaffSalesLedger mySalesData={salesData.filter(s => s.staffName === user.name)} />
@@ -2989,37 +2997,268 @@ function StaffCommissions({ staffName, salesData, payoutsData }) {
 }
 // ==================== DAFTAR TAMBAHAN KOMPONEN BARU SUB-SISTEM ====================
 
-export function StaffResourceHub({ catalogData, showAlert }) {
-    const resources = catalogData.length > 0 ? catalogData : [
-        { id: '1', name: 'Sampel Perangkat SD/MI - Lengkap', desc: 'Format Microsoft Word editable, sesuai CP 046 terbaru.', url: 'https://drive.google.com' },
-        { id: '2', name: 'Sampel Perangkat SMP/MTs - Lengkap', desc: 'Format Dokumen DOCX beserta rubrik penilaian pembelajaran.', url: 'https://drive.google.com' },
-        { id: '3', name: 'Sampel Perangkat SMA/MA - Lengkap', desc: 'Format Premium Modul Ajar Deeplearning interaktif.', url: 'https://drive.google.com' }
-    ];
+export function StaffResourceHub({ db, appId, user, showAlert }) {
+    const [drives, setDrives] = React.useState([]);
+    const [selectedDrive, setSelectedDrive] = React.useState(null);
+
+    // Mengambil daftar folder drive yang didaftarkan Admin
+    React.useEffect(() => {
+        if (!db) return;
+        const driveRef = collection(db, 'artifacts', appId, 'public', 'data', 'driveFilesData');
+        const unsubscribe = onSnapshot(driveRef, (snapshot) => {
+            const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setDrives(fetched);
+            if (fetched.length > 0 && !selectedDrive) {
+                setSelectedDrive(fetched[0]); // Default buka folder pertama
+            }
+        });
+        return () => unsubscribe();
+    }, [db]);
+
+    // Fungsi mengubah link Google Drive biasa menjadi mode Embed Kotak Interaktif
+    const dapatkanLinkEmbed = (url) => {
+        if (!url) return "";
+        let folderId = "";
+        if (url.includes('/folders/')) {
+            folderId = url.split('/folders/')[1]?.split('?')[0];
+        } else if (url.includes('id=')) {
+            folderId = url.split('id=')[1]?.split('&')[0];
+        } else {
+            return url;
+        }
+        return `https://drive.google.com/embeddedfolderview?id=${folderId}#list`;
+    };
+
+    // Otomatis mencatat LOG ke admin begitu sales memilih/membuka folder tersebut
+    const handlePilihFolder = async (drive) => {
+        setSelectedDrive(drive);
+        try {
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'downloadLogs'), {
+                staffName: user.name,
+                username: user.username,
+                fileName: `Membuka Drive: ${drive.name}`,
+                fileId: drive.id,
+                timestamp: new Date().toISOString()
+            });
+        } catch (error) {
+            console.error("Gagal mencatat log", error);
+        }
+    };
+
+    return (
+        <div className="space-y-4 animate-in fade-in h-[82vh] flex flex-col">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b pb-3">
+                <div>
+                    <h2 className="text-xl font-black text-blue-950 flex items-center gap-2">
+                        <Package size={22} className="text-blue-600" />
+                        <span>Sobat Guru Live Explorer</span>
+                    </h2>
+                    <p className="text-gray-500 text-xs">Gunakan kolom pencarian di dalam kotak Google Drive di bawah untuk mencari file.</p>
+                </div>
+
+                {/* Tombol Pilihan Folder jika Admin memasukkan lebih dari 1 link */}
+                <div className="flex items-center gap-2 w-full md:w-auto">
+                    <span className="text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Pilih Kategori:</span>
+                    <select
+                        value={selectedDrive?.id || ''}
+                        onChange={(e) => {
+                            const cocok = drives.find(d => d.id === e.target.value);
+                            if (cocok) handlePilihFolder(cocok);
+                        }}
+                        className="border px-3 py-1.5 rounded-xl text-xs bg-white font-bold text-blue-900 focus:ring-2 focus:ring-blue-500 w-full md:w-56"
+                    >
+                        {drives.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                        {drives.length === 0 && <option>Belum ada folder diinput Admin</option>}
+                    </select>
+                </div>
+            </div>
+
+            {/* KOTAK EMBED GOOGLE DRIVE UTAMA */}
+            <div className="flex-grow w-full bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden relative min-h-[450px]">
+                {selectedDrive ? (
+                    <iframe
+                        src={dapatkanLinkEmbed(selectedDrive.url)}
+                        width="100%"
+                        height="100%"
+                        frameBorder="0"
+                        className="w-full h-full"
+                        allow="autoplay"
+                        title="Google Drive Embed"
+                    ></iframe>
+                ) : (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+                        <Search size={40} className="animate-pulse mb-2" />
+                        <p className="text-sm font-medium">Memuat Google Cloud Server...</p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+export function ManageAdminDrive({ db, appId, showAlert, showConfirm }) {
+    const [driveData, setDriveData] = React.useState([]);
+    const [form, setForm] = React.useState({ name: '', url: '', description: '' });
+    const [editId, setEditId] = React.useState(null);
+
+    React.useEffect(() => {
+        if (!db) return;
+        const driveRef = collection(db, 'artifacts', appId, 'public', 'data', 'driveFilesData');
+        return onSnapshot(driveRef, (snapshot) => {
+            setDriveData(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        });
+    }, [db]);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+            const driveRef = collection(db, 'artifacts', appId, 'public', 'data', 'driveFilesData');
+            if (editId) {
+                await updateDoc(doc(driveRef, editId), form);
+                showAlert("Folder Drive berhasil diperbarui!", "Sukses", "success");
+                setEditId(null);
+            } else {
+                await addDoc(driveRef, form);
+                showAlert("Folder sukses ditempel ke aplikasi!", "Sukses", "success");
+            }
+            setForm({ name: '', url: '', description: '' });
+        } catch (error) {
+            showAlert("Gagal menyimpan data.", "Error", "error");
+        }
+    };
+
+    const handleDelete = async (id) => {
+        try {
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'driveFilesData', id));
+            showAlert("Folder telah dicabut.", "Sukses", "success");
+        } catch (error) {
+            showAlert("Gagal menghapus.", "Error", "error");
+        }
+    };
 
     return (
         <div className="space-y-6 animate-in fade-in">
             <div>
-                <h2 className="text-2xl font-bold text-blue-950">Pusat Sampel Google Drive</h2>
-                <p className="text-gray-500 text-sm">Ambil tautan berkas sampel di bawah untuk memudahkan pengiriman ke calon pembeli.</p>
+                <h1 className="text-2xl font-bold text-blue-950">Pengaturan Embed Google Drive</h1>
+                <p className="text-sm text-gray-500">Cukup paste link folder Google Drive utama atau per jenjang di sini.</p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {resources.map((res) => (
-                    <div key={res.id} className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm flex flex-col justify-between">
-                        <div className="space-y-1.5">
-                            <span className="text-[10px] bg-green-100 text-green-800 font-bold px-2 py-0.5 rounded uppercase">Cloud Storage</span>
-                            <h3 className="font-bold text-gray-800 text-base">{res.name}</h3>
-                            <p className="text-xs text-gray-500">{res.desc}</p>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="bg-white p-5 rounded-2xl border shadow-sm h-fit">
+                    <h3 className="font-bold text-gray-800 border-b pb-2 mb-4">{editId ? 'Ubah Folder' : 'Embed Folder Baru'}</h3>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label className="text-xs font-bold text-gray-600 block mb-1">Nama Folder Tampilan</label>
+                            <input required type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full border px-3 py-2 rounded-lg text-sm bg-white text-gray-800" placeholder="Contoh: Master Drive Semua Sampel" />
                         </div>
-                        <div className="mt-5 flex gap-2">
-                            <a href={res.url} target="_blank" rel="noreferrer" className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-center font-bold py-2 rounded-xl text-xs transition">
-                                Unduh / Buka Drive
-                            </a>
-                            <button onClick={() => { navigator.clipboard.writeText(res.url); showAlert("Link berhasil disalin!", "Sukses", "success"); }} className="bg-gray-100 hover:bg-gray-200 text-gray-750 font-bold px-3 py-2 rounded-xl text-xs transition">
-                                Salin
-                            </button>
+                        <div>
+                            <label className="text-xs font-bold text-gray-600 block mb-1">Link Share Folder Google Drive</label>
+                            <input required type="url" value={form.url} onChange={e => setForm({ ...form, url: e.target.value })} className="w-full border px-3 py-2 rounded-lg text-xs font-mono text-blue-700 bg-white" placeholder="https://drive.google.com/drive/folders/..." />
                         </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-600 block mb-1">Keterangan Tambahan</label>
+                            <textarea rows={2} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="w-full border px-3 py-2 rounded-lg text-sm bg-white text-gray-800" placeholder="Catatan internal..."></textarea>
+                        </div>
+                        <div className="flex gap-2 pt-2">
+                            <button type="submit" className="flex-1 bg-blue-600 text-white font-bold py-2 rounded-xl text-sm hover:bg-blue-700 transition">{editId ? 'Simpan' : 'Embed Folder'}</button>
+                            {editId && <button type="button" onClick={() => { setEditId(null); setForm({ name: '', url: '', description: '' }) }} className="bg-gray-400 text-white px-3 py-2 rounded-xl text-sm">Batal</button>}
+                        </div>
+                    </form>
+                </div>
+
+                <div className="lg:col-span-2 space-y-4">
+                    <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+                        <table className="w-full text-left text-sm text-gray-600">
+                            <thead className="bg-gray-50 border-b font-bold text-gray-700">
+                                <tr>
+                                    <th className="px-4 py-3">Nama Kategori Folder</th>
+                                    <th className="px-4 py-3 text-center">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {driveData.map(file => (
+                                    <tr key={file.id} className="border-b hover:bg-gray-50/50">
+                                        <td className="px-4 py-3 font-bold text-gray-800">{file.name}</td>
+                                        <td className="px-4 py-3 text-center space-x-2.5 whitespace-nowrap">
+                                            <button onClick={() => { setEditId(file.id); setForm(file); }} className="text-blue-600 hover:text-blue-800 inline-block"><Edit size={16} /></button>
+                                            <button onClick={() => showConfirm("Cabut hak akses folder embed ini dari sales?", () => handleDelete(file.id))} className="text-red-500 hover:text-red-700 inline-block"><Trash2 size={16} /></button>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {driveData.length === 0 && (
+                                    <tr>
+                                        <td colSpan={2} className="text-center py-6 text-gray-400">Belum ada folder Drive yang di-embed.</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
                     </div>
-                ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+export function ManageAdminLogs({ db, appId }) {
+    const [logs, setLogs] = React.useState([]);
+
+    React.useEffect(() => {
+        if (!db) return;
+        const logsRef = collection(db, 'artifacts', appId, 'public', 'data', 'downloadLogs');
+        const unsubscribe = onSnapshot(logsRef, (snapshot) => {
+            const fetchedLogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            fetchedLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            setLogs(fetchedLogs);
+        }, (err) => console.error(err));
+        return () => unsubscribe();
+    }, [db]);
+
+    return (
+        <div className="space-y-6 animate-in fade-in">
+            <div>
+                <h1 className="text-2xl font-black text-blue-950 flex items-center gap-2">
+                    <Clock size={24} className="text-amber-500" />
+                    <span>Audit Log Akses Drive Sales</span>
+                </h1>
+                <p className="text-sm text-gray-500 mt-0.5">Memantau waktu tepat saat akun sales membuka kotak penyimpanan sampel.</p>
+            </div>
+
+            <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+                <table className="w-full text-left text-sm text-gray-600">
+                    <thead className="bg-blue-900 text-white text-xs font-bold uppercase tracking-wider">
+                        <tr>
+                            <th className="px-6 py-4">Waktu Akses</th>
+                            <th className="px-6 py-4">Nama Akun Sales</th>
+                            <th className="px-6 py-4">Aktivitas Akses</th>
+                            <th className="px-6 py-4 text-center">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody className="font-medium">
+                        {logs.map((log) => (
+                            <tr key={log.id} className="border-b hover:bg-gray-50/70 transition">
+                                <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500 font-mono">
+                                    {new Date(log.timestamp).toLocaleString('id-ID')}
+                                </td>
+                                <td className="px-6 py-4 font-bold text-blue-900">
+                                    {log.staffName} <span className="text-xs text-gray-400 font-normal">(@{log.username})</span>
+                                </td>
+                                <td className="px-6 py-4 text-gray-800 font-semibold" title={log.fileName}>
+                                    {log.fileName}
+                                </td>
+                                <td className="px-6 py-4 text-center">
+                                    <span className="bg-green-50 text-green-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-green-200">
+                                        Verified View
+                                    </span>
+                                </td>
+                            </tr>
+                        ))}
+                        {logs.length === 0 && (
+                            <tr>
+                                <td colSpan={4} className="text-center py-10 text-gray-400 font-medium">Belum ada riwayat aktivitas yang tercatat.</td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
             </div>
         </div>
     );
@@ -3126,7 +3365,7 @@ export function ManageLeadsDashboard({ leadsData, showAlert }) {
 }
 
 export function ManageBrandSettings({ appSettings, db, appId, showAlert }) {
-    const [faviconUrl, setFaviconUrl] = useState(appSettings.favicon || '');
+    const [faviconUrl, setFaviconUrl] = React.useState(appSettings.favicon || '');
 
     const handleSaveConfig = async (e) => {
         e.preventDefault();
