@@ -39,7 +39,8 @@ export default function App() {
     const [expensesData, setExpensesData] = useState([]);
     const [previewsData, setPreviewsData] = useState([]);
     const [payoutsData, setPayoutsData] = useState([]);
-
+    const [leadsData, setLeadsData] = useState([]);
+    const [appSettings, setAppSettings] = useState({ favicon: 'https://react.dev/favicon.ico' });
     // Custom UI Alert & Confirm States (Solusi Iframe CSP)
     const [alertConfig, setAlertConfig] = useState({ isOpen: false, title: '', message: '', type: 'info' });
     const [confirmConfig, setConfirmConfig] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
@@ -127,7 +128,31 @@ export default function App() {
             fetchedPayouts.sort((a, b) => new Date(b.payoutDate) - new Date(a.payoutDate));
             setPayoutsData(fetchedPayouts);
         }, (error) => console.error("Payouts Firestore error:", error));
+        // Listener Baru: data leads kustomer
+        const leadsRef = collection(db, 'artifacts', appId, 'public', 'data', 'leadsData');
+        const unsubscribeLeads = onSnapshot(leadsRef, (snapshot) => {
+            const fetchedLeads = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            fetchedLeads.sort((a, b) => new Date(b.date) - new Date(a.date));
+            setLeadsData(fetchedLeads);
+        }, (error) => console.error("Leads error:", error));
 
+        // Listener Baru: pengaturan favicon aplikasi
+        const settingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'settingsData');
+        const unsubscribeSettings = onSnapshot(settingsRef, (snapshot) => {
+            if (!snapshot.empty) {
+                const data = snapshot.docs[0].data();
+                setAppSettings(data);
+
+                // Mengubah favicon browser secara instan
+                let link = document.querySelector("link[rel~='icon']");
+                if (!link) {
+                    link = document.createElement('link');
+                    link.rel = 'icon';
+                    document.head.appendChild(link);
+                }
+                link.href = data.favicon || 'https://react.dev/favicon.ico';
+            }
+        }, (error) => console.error("Settings error:", error));
         return () => {
             unsubscribeSales();
             unsubscribeUsers();
@@ -135,6 +160,8 @@ export default function App() {
             unsubscribeExpenses();
             unsubscribePreviews();
             unsubscribePayouts();
+            unsubscribeLeads();      // <-- Tambahkan ini
+            unsubscribeSettings();   // <-- Tambahkan ini
         };
     }, [firebaseUser]);
 
@@ -170,27 +197,27 @@ export default function App() {
 
     const addSale = async (newSale) => {
         if (!db) return showAlert("Sistem offline!", "Error", "error");
-        try { 
+        try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'salesData'), {
                 ...newSale,
                 paymentStatus: 'unpaid'
-            }); 
+            });
             showAlert("Closingan berhasil disimpan!", "Sukses", "success");
         }
         catch (error) { showAlert("Gagal menyimpan data!", "Error", "error"); }
     };
 
     const updateSale = async (saleId, updatedData) => {
-        try { 
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salesData', saleId), updatedData); 
-            showAlert("Data Diperbarui!", "Sukses", "success"); 
+        try {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salesData', saleId), updatedData);
+            showAlert("Data Diperbarui!", "Sukses", "success");
         }
         catch (error) { showAlert("Gagal memperbarui!", "Error", "error"); }
     };
 
     const deleteSale = async (saleId) => {
-        try { 
-            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salesData', saleId)); 
+        try {
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salesData', saleId));
             showAlert("Transaksi berhasil dihapus!", "Sukses", "success");
         }
         catch (error) { showAlert("Gagal menghapus!", "Error", "error"); }
@@ -202,8 +229,8 @@ export default function App() {
     };
 
     const deleteStaffUser = async (userId) => {
-        try { 
-            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'usersData', userId)); 
+        try {
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'usersData', userId));
             showAlert("Akun staff berhasil dihapus!", "Sukses", "success");
         }
         catch (error) { showAlert("Gagal menghapus!", "Error", "error"); }
@@ -220,8 +247,8 @@ export default function App() {
     };
 
     const deleteProduct = async (prodId) => {
-        try { 
-            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'catalogData', prodId)); 
+        try {
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'catalogData', prodId));
             showAlert("Produk berhasil dihapus!", "Sukses", "success");
         }
         catch (error) { showAlert("Gagal menghapus produk!", "Error", "error"); }
@@ -239,8 +266,8 @@ export default function App() {
     };
 
     const deleteExpense = async (expenseId) => {
-        try { 
-            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'expensesData', expenseId)); 
+        try {
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'expensesData', expenseId));
             showAlert("Pengeluaran berhasil dihapus!", "Sukses", "success");
         }
         catch (error) { showAlert("Gagal menghapus pengeluaran!", "Error", "error"); }
@@ -295,10 +322,10 @@ export default function App() {
     return (
         <div className="min-h-screen bg-gray-50 text-gray-800">
             {currentView === 'landing' && (
-                <LandingPage 
-                    setView={setCurrentView} 
-                    catalogData={catalogData} 
-                    addLead={addLead} 
+                <LandingPage
+                    setView={setCurrentView}
+                    catalogData={catalogData}
+                    addLead={addLead}
                     previewsData={previewsData}
                     showAlert={showAlert}
                 />
@@ -329,6 +356,10 @@ export default function App() {
                     payStaffCommission={payStaffCommission}
                     showAlert={showAlert}
                     showConfirm={showConfirm}
+                    leadsData={leadsData}
+                    appSettings={appSettings}
+                    db={db}
+                    appId={appId}
                 />
             )}
 
@@ -884,12 +915,12 @@ function LoginPage({ setView, onLogin, usersData }) {
 
 // ---------------------- DASHBOARD (INTERNAL) ----------------------
 
-function Dashboard({ 
-    user, onLogout, salesData, addSale, updateSale, deleteSale, 
-    usersData, addStaffUser, deleteStaffUser, catalogData, 
-    addProduct, updateProduct, deleteProduct, expensesData, 
-    addExpense, updateExpense, deleteExpense, previewsData, 
-    payoutsData, updatePreview, payStaffCommission, showAlert, showConfirm 
+function Dashboard({
+    user, onLogout, salesData, addSale, updateSale, deleteSale,
+    usersData, addStaffUser, deleteStaffUser, catalogData,
+    addProduct, updateProduct, deleteProduct, expensesData,
+    addExpense, updateExpense, deleteExpense, previewsData,
+    payoutsData, updatePreview, payStaffCommission, showAlert, showConfirm, leadsData, appSettings, db, appId
 }) {
     const [activeTab, setActiveTab] = useState(user.role === 'staff' ? 'input' : 'overview');
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -898,7 +929,7 @@ function Dashboard({
 
     return (
         <div className="flex h-screen bg-gray-100 overflow-hidden relative">
-            
+
             {/* 1. MOBILE HEADER BAR */}
             <div className="bg-blue-900 text-white p-4 flex justify-between items-center md:hidden shadow-md fixed top-0 left-0 right-0 z-45">
                 <div className="flex items-center gap-2">
@@ -937,6 +968,8 @@ function Dashboard({
                             <SidebarBtn icon={<FileText />} label="Pratinjau Landing" active={activeTab === 'manage_previews'} onClick={() => { setActiveTab('manage_previews'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Package />} label="Katalog Landing" active={activeTab === 'manage_catalog'} onClick={() => { setActiveTab('manage_catalog'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Users />} label="Manajemen Staff" active={activeTab === 'manage_staff'} onClick={() => { setActiveTab('manage_staff'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<MessageCircle />} label="Pusat Leads (CRM)" active={activeTab === 'manage_leads'} onClick={() => { setActiveTab('manage_leads'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<Lock />} label="Favicon & Brand" active={activeTab === 'brand_settings'} onClick={() => { setActiveTab('brand_settings'); setIsSidebarOpen(false); }} />
                         </>
                     )}
                     {user.role === 'staff' && (
@@ -944,6 +977,8 @@ function Dashboard({
                             <SidebarBtn icon={<PlusCircle />} label="Input Closingan" active={activeTab === 'input'} onClick={() => { setActiveTab('input'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<ShoppingBag />} label="Riwayat Penjualan" active={activeTab === 'my_sales'} onClick={() => { setActiveTab('my_sales'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Award />} label="Laporan Komisi Saya" active={activeTab === 'my_commissions'} onClick={() => { setActiveTab('my_commissions'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<Book />} label="Unduh Sampel Perangkat" active={activeTab === 'resource_hub'} onClick={() => { setActiveTab('resource_hub'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<BarChart3 />} label="Buku Kas Penjualan" active={activeTab === 'my_ledger'} onClick={() => { setActiveTab('my_ledger'); setIsSidebarOpen(false); }} />
                         </>
                     )}
                 </nav>
@@ -974,8 +1009,8 @@ function Dashboard({
                         />
                     )}
                     {user.role === 'admin' && activeTab === 'commission' && (
-                        <CommissionReport 
-                            salesData={salesData} 
+                        <CommissionReport
+                            salesData={salesData}
                             payoutsData={payoutsData}
                             usersData={usersData}
                             payStaffCommission={payStaffCommission}
@@ -985,15 +1020,26 @@ function Dashboard({
                     )}
                     {user.role === 'admin' && activeTab === 'leaderboard' && <Leaderboard salesData={salesData} />}
                     {user.role === 'admin' && activeTab === 'manage_previews' && (
-                        <ManagePreviews 
-                            previewsData={previewsData} 
-                            updatePreview={updatePreview} 
-                            showAlert={showAlert} 
+                        <ManagePreviews
+                            previewsData={previewsData}
+                            updatePreview={updatePreview}
+                            showAlert={showAlert}
                         />
                     )}
                     {user.role === 'admin' && activeTab === 'manage_catalog' && <ManageCatalog catalogData={catalogData} addProduct={addProduct} updateProduct={updateProduct} deleteProduct={deleteProduct} showConfirm={showConfirm} />}
                     {user.role === 'admin' && activeTab === 'manage_staff' && <ManageStaff usersData={usersData} addStaffUser={addStaffUser} deleteStaffUser={deleteStaffUser} showConfirm={showConfirm} />}
-
+                    {user.role === 'admin' && activeTab === 'manage_leads' && (
+                        <ManageLeadsDashboard leadsData={leadsData} showAlert={showAlert} />
+                    )}
+                    {user.role === 'admin' && activeTab === 'brand_settings' && (
+                        <ManageBrandSettings appSettings={appSettings} db={db} appId={appId} showAlert={showAlert} />
+                    )}
+                    {user.role === 'staff' && activeTab === 'resource_hub' && (
+                        <StaffResourceHub catalogData={catalogData} showAlert={showAlert} />
+                    )}
+                    {user.role === 'staff' && activeTab === 'my_ledger' && (
+                        <StaffSalesLedger mySalesData={salesData.filter(s => s.staffName === user.name)} />
+                    )}
                     {user.role === 'staff' && activeTab === 'input' && <StaffInputForm addSale={addSale} userName={user.name} setTab={setActiveTab} catalogData={catalogData} />}
                     {user.role === 'staff' && activeTab === 'my_sales' && <SalesTable data={salesData.filter(s => s.staffName === user.name)} title="Riwayat Penjualan Saya" showFilters={false} isAdmin={false} />}
                     {user.role === 'staff' && activeTab === 'my_commissions' && (
@@ -1195,22 +1241,22 @@ function AdminOverview({ salesData, expensesData }) {
                     <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight text-blue-950">Overview Bisnis Owner</h1>
                     <p className="text-gray-500 text-sm mt-1">Pantau perolehan omzet, pengeluaran operasional, dan keuntungan bersih secara real-time.</p>
                 </div>
-                
+
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-white p-3 rounded-xl border w-full xl:w-auto shadow-sm">
                     <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Periode:</span>
-                        <input 
-                            type="date" 
-                            value={startDate} 
-                            onChange={e => setStartDate(e.target.value)} 
-                            className="border px-2.5 py-1 text-xs rounded-lg bg-gray-50 text-gray-850 font-bold focus:ring-2 focus:ring-blue-500" 
+                        <input
+                            type="date"
+                            value={startDate}
+                            onChange={e => setStartDate(e.target.value)}
+                            className="border px-2.5 py-1 text-xs rounded-lg bg-gray-50 text-gray-850 font-bold focus:ring-2 focus:ring-blue-500"
                         />
                         <span className="text-xs text-gray-400">s/d</span>
-                        <input 
-                            type="date" 
-                            value={endDate} 
-                            onChange={e => setEndDate(e.target.value)} 
-                            className="border px-2.5 py-1 text-xs rounded-lg bg-gray-50 text-gray-850 font-bold focus:ring-2 focus:ring-blue-500" 
+                        <input
+                            type="date"
+                            value={endDate}
+                            onChange={e => setEndDate(e.target.value)}
+                            className="border px-2.5 py-1 text-xs rounded-lg bg-gray-50 text-gray-850 font-bold focus:ring-2 focus:ring-blue-500"
                         />
                     </div>
                 </div>
@@ -1629,7 +1675,7 @@ function SalesTable({
             <div className="space-y-4 animate-in fade-in">
                 <h1 className="text-xl font-bold text-gray-800">{title}</h1>
                 <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-                    
+
                     <div className="overflow-x-auto hidden md:block animate-in">
                         <table className="w-full text-left text-sm text-gray-600">
                             <thead className="bg-gray-50 border-b">
@@ -1672,7 +1718,7 @@ function SalesTable({
                                     <div className="grid grid-cols-2 gap-y-1 text-xs text-gray-600 font-medium">
                                         <span>Paket Modul:</span>
                                         <span className="text-right text-blue-600 font-bold">{sale.product}</span>
-                                        
+
                                         <span>Nominal Closing:</span>
                                         <span className="text-right text-green-600 font-black">Rp {sale.amount.toLocaleString('id-ID')}</span>
                                     </div>
@@ -1737,7 +1783,7 @@ function SalesTable({
                     </div>
 
                     <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
-                        
+
                         <div className="overflow-x-auto hidden md:block">
                             <table className="w-full text-left text-sm text-gray-600">
                                 <thead className="bg-gray-50 border-b">
@@ -1835,7 +1881,7 @@ function SalesTable({
                     </div>
 
                     <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
-                        
+
                         <div className="overflow-x-auto hidden md:block">
                             <table className="w-full text-left text-sm text-gray-600">
                                 <thead className="bg-gray-50 border-b">
@@ -1877,7 +1923,16 @@ function SalesTable({
                                                         <td className="px-6 py-4 text-right font-black text-green-600">Rp {sale.amount.toLocaleString('id-ID')}</td>
                                                         <td className="px-6 py-4 text-center space-x-3 whitespace-nowrap">
                                                             <button onClick={() => startEdit(sale)} className="text-blue-600 hover:text-blue-800 inline-block" title="Edit Transaksi"><Edit size={16} /></button>
-                                                            <button onClick={() => showConfirm("Yakin hapus transaksi ini secara permanen?", () => deleteSale(sale.id))} className="text-red-500 hover:text-red-700 inline-block" title="Hapus Transaksi"><Trash2 size={16} /></button>
+                                                            <button onClick={() => showConfirm("Yakin hapus transaksi ini secara permanen?", () => deleteSale(sale.id))} className="text-red-500 hover:text-red-700 inline-block" title="Hapus Transaksi"><Trash2 size={16} /></button><button
+                                                                onClick={() => {
+                                                                    const invoiceText = `======================================\n         SOBAT GURU DIGITAL 2026\n======================================\nBUKTI PEMBAYARAN RESMI (NOTA SPJ)\nID TRANSAKSI : SGD-${sale.id.slice(0, 6).toUpperCase()}\nTanggal      : ${sale.date}\n\nDIBAYARKAN KEPADA:\nNama Guru    : ${sale.customer}\nMitra Kerja  : Sobat Guru Digital\n\nRINCIAN ITEM:\nNama Paket   : ${sale.product}\nFormat File  : Microsoft Word (Editable DOCX)\nTOTAL BIAYA  : Rp ${sale.amount.toLocaleString('id-ID')}\nSTATUS       : LUNAS & SAH\n======================================`;
+                                                                    navigator.clipboard.writeText(invoiceText);
+                                                                    alert(`Bukti transaksi SPJ untuk ${sale.customer} berhasil disalin ke clipboard!`);
+                                                                }}
+                                                                className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold py-1 px-2.5 rounded-lg transition mr-2"
+                                                            >
+                                                                Kuitansi SPJ
+                                                            </button>
                                                         </td>
                                                     </>
                                                 )}
@@ -1915,6 +1970,20 @@ function SalesTable({
                                                     <div className="space-x-3">
                                                         <button onClick={() => startEdit(sale)} className="text-blue-600 hover:text-blue-800" title="Edit"><Edit size={14} /></button>
                                                         <button onClick={() => showConfirm("Yakin hapus transaksi ini secara permanen?", () => deleteSale(sale.id))} className="text-red-500 hover:text-red-700" title="Hapus"><Trash2 size={14} /></button>
+                                                        <div className="space-x-3">
+                                                            <button
+                                                                onClick={() => {
+                                                                    const invoiceText = `======================================\n         SOBAT GURU DIGITAL 2026\n======================================\nBUKTI PEMBAYARAN RESMI (NOTA SPJ)\nID TRANSAKSI : SGD-${sale.id.slice(0, 6).toUpperCase()}\nTanggal      : ${sale.date}\n\nDIBAYARKAN KEPADA:\nNama Guru    : ${sale.customer}\nTOTAL BIAYA  : Rp ${sale.amount.toLocaleString('id-ID')}\nSTATUS       : LUNAS & SAH\n======================================`;
+                                                                    navigator.clipboard.writeText(invoiceText);
+                                                                    alert(`Bukti transaksi SPJ untuk ${sale.customer} berhasil disalin!`);
+                                                                }}
+                                                                className="bg-amber-500 text-white text-[9px] font-bold py-0.5 px-2 rounded-md transition mr-1"
+                                                            >
+                                                                SPJ
+                                                            </button>
+                                                            <button onClick={() => startEdit(sale)} className="text-blue-600 hover:text-blue-800" title="Edit"><Edit size={14} /></button>
+                                                            <button onClick={() => showConfirm("Yakin hapus transaksi ini secara permanen?", () => deleteSale(sale.id))} className="text-red-500 hover:text-red-700" title="Hapus"><Trash2 size={14} /></button>
+                                                        </div>
                                                     </div>
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-y-1 text-xs font-medium text-gray-600">
@@ -1941,7 +2010,7 @@ function SalesTable({
             {subTab === 'expenses' && (
                 <div className="space-y-6 animate-in fade-in">
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        
+
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 h-fit">
                             <h3 className="font-extrabold text-blue-950 text-base border-b pb-3 mb-4 flex items-center gap-2">
                                 <PlusCircle size={20} className="text-blue-600" />
@@ -2031,7 +2100,7 @@ function SalesTable({
                             </div>
 
                             <div className="bg-white rounded-xl border overflow-hidden animate-in">
-                                
+
                                 <div className="overflow-x-auto hidden md:block">
                                     <table className="w-full text-left text-sm text-gray-600 bg-white">
                                         <thead className="bg-gray-50 border-b">
@@ -2074,9 +2143,9 @@ function SalesTable({
                                                                 <td className="px-4 py-3 whitespace-nowrap font-medium">{exp.date}</td>
                                                                 <td className="px-4 py-3">
                                                                     <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold ${exp.category === 'Marketing' ? 'bg-rose-50 text-rose-700' :
-                                                                            exp.category === 'Gaji' ? 'bg-purple-50 text-purple-700' :
-                                                                                exp.category === 'Operasional' ? 'bg-blue-50 text-blue-700' :
-                                                                                    'bg-gray-100 text-gray-700'
+                                                                        exp.category === 'Gaji' ? 'bg-purple-50 text-purple-700' :
+                                                                            exp.category === 'Operasional' ? 'bg-blue-50 text-blue-700' :
+                                                                                'bg-gray-100 text-gray-700'
                                                                         }`}>
                                                                         {exp.category || 'Lain-lain'}
                                                                     </span>
@@ -2124,9 +2193,9 @@ function SalesTable({
                                                             <div>
                                                                 <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${exp.category === 'Marketing' ? 'bg-rose-50 text-rose-700' :
                                                                     exp.category === 'Gaji' ? 'bg-purple-50 text-purple-700' :
-                                                                    exp.category === 'Operasional' ? 'bg-blue-50 text-blue-700' :
-                                                                    'bg-gray-100 text-gray-700'
-                                                                }`}>
+                                                                        exp.category === 'Operasional' ? 'bg-blue-50 text-blue-700' :
+                                                                            'bg-gray-100 text-gray-700'
+                                                                    }`}>
                                                                     {exp.category || 'Lain-lain'}
                                                                 </span>
                                                                 <p className="text-[10px] text-gray-400 mt-1 font-semibold">{exp.date}</p>
@@ -2161,7 +2230,7 @@ function SalesTable({
 
 function ManagePreviews({ previewsData, updatePreview, showAlert }) {
     const slots = ['cover', 'prota', 'isi'];
-    
+
     const getSlotForm = (slot) => {
         const current = previewsData.find(p => p.id === slot || p.slot === slot) || {};
         return {
@@ -2391,9 +2460,9 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
             return;
         }
 
-        const staffSales = salesData.filter(s => 
-            s.staffName === selectedStaff && 
-            s.date >= payStart && 
+        const staffSales = salesData.filter(s =>
+            s.staffName === selectedStaff &&
+            s.date >= payStart &&
             s.date <= payEnd
         );
 
@@ -2453,7 +2522,7 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
+
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 h-fit animate-in">
                     <h3 className="font-extrabold text-blue-950 text-base border-b pb-3 mb-4 flex items-center gap-2">
                         <PlusCircle size={20} className="text-blue-600" />
@@ -2552,7 +2621,7 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
                     </div>
 
                     <div className="overflow-hidden rounded-xl border">
-                        
+
                         <table className="w-full text-left text-sm hidden md:table bg-white">
                             <thead className="bg-blue-900 text-white">
                                 <tr>
@@ -2637,7 +2706,7 @@ function ManageStaff({ usersData, addStaffUser, deleteStaffUser, showConfirm }) 
                     </form>
                 </div>
                 <div className="md:col-span-2 bg-white rounded-xl border overflow-hidden">
-                    
+
                     <div className="overflow-x-auto hidden md:block">
                         <table className="w-full text-left text-sm bg-white">
                             <thead className="bg-gray-50 border-b">
@@ -2915,6 +2984,180 @@ function StaffCommissions({ staffName, salesData, payoutsData }) {
                     </div>
                 </div>
             </div>
+        </div>
+    );
+}
+// ==================== DAFTAR TAMBAHAN KOMPONEN BARU SUB-SISTEM ====================
+
+export function StaffResourceHub({ catalogData, showAlert }) {
+    const resources = catalogData.length > 0 ? catalogData : [
+        { id: '1', name: 'Sampel Perangkat SD/MI - Lengkap', desc: 'Format Microsoft Word editable, sesuai CP 046 terbaru.', url: 'https://drive.google.com' },
+        { id: '2', name: 'Sampel Perangkat SMP/MTs - Lengkap', desc: 'Format Dokumen DOCX beserta rubrik penilaian pembelajaran.', url: 'https://drive.google.com' },
+        { id: '3', name: 'Sampel Perangkat SMA/MA - Lengkap', desc: 'Format Premium Modul Ajar Deeplearning interaktif.', url: 'https://drive.google.com' }
+    ];
+
+    return (
+        <div className="space-y-6 animate-in fade-in">
+            <div>
+                <h2 className="text-2xl font-bold text-blue-950">Pusat Sampel Google Drive</h2>
+                <p className="text-gray-500 text-sm">Ambil tautan berkas sampel di bawah untuk memudahkan pengiriman ke calon pembeli.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {resources.map((res) => (
+                    <div key={res.id} className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm flex flex-col justify-between">
+                        <div className="space-y-1.5">
+                            <span className="text-[10px] bg-green-100 text-green-800 font-bold px-2 py-0.5 rounded uppercase">Cloud Storage</span>
+                            <h3 className="font-bold text-gray-800 text-base">{res.name}</h3>
+                            <p className="text-xs text-gray-500">{res.desc}</p>
+                        </div>
+                        <div className="mt-5 flex gap-2">
+                            <a href={res.url} target="_blank" rel="noreferrer" className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-center font-bold py-2 rounded-xl text-xs transition">
+                                Unduh / Buka Drive
+                            </a>
+                            <button onClick={() => { navigator.clipboard.writeText(res.url); showAlert("Link berhasil disalin!", "Sukses", "success"); }} className="bg-gray-100 hover:bg-gray-200 text-gray-750 font-bold px-3 py-2 rounded-xl text-xs transition">
+                                Salin
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+export function StaffSalesLedger({ mySalesData }) {
+    const totalClosing = mySalesData.length;
+    const omzetBruto = mySalesData.reduce((acc, curr) => acc + curr.amount, 0);
+
+    return (
+        <div className="space-y-6 animate-in fade-in">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div className="bg-gradient-to-br from-blue-900 to-indigo-950 p-5 rounded-2xl text-white shadow-sm">
+                    <p className="text-xs text-blue-200 font-medium uppercase tracking-wider">Total Transaksi Penjualan Anda</p>
+                    <h4 className="text-2xl font-black mt-1">{totalClosing} Nota Terinput</h4>
+                </div>
+                <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm">
+                    <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">Akumulasi Omzet Pribadi</p>
+                    <h4 className="text-2xl font-black text-green-600 mt-1">Rp {omzetBruto.toLocaleString('id-ID')}</h4>
+                </div>
+            </div>
+
+            <div className="bg-white rounded-xl border overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs text-gray-600">
+                        <thead className="bg-gray-50 text-gray-700 font-bold border-b">
+                            <tr>
+                                <th className="px-4 py-3">Tanggal Nota</th>
+                                <th className="px-4 py-3">Nama Kustomer / Sekolah</th>
+                                <th className="px-4 py-3">Paket Pembelian</th>
+                                <th className="px-4 py-3 text-right">Nilai Closing</th>
+                            </tr>
+                        </thead>
+                        <tbody className="font-medium">
+                            {mySalesData.map((s, idx) => (
+                                <tr key={idx} className="border-b hover:bg-gray-50/50">
+                                    <td className="px-4 py-3 whitespace-nowrap">{s.date}</td>
+                                    <td className="px-4 py-3 text-gray-900 font-bold">{s.customer}</td>
+                                    <td className="px-4 py-3">{s.product}</td>
+                                    <td className="px-4 py-3 text-right text-green-600 font-bold">Rp {s.amount.toLocaleString('id-ID')}</td>
+                                </tr>
+                            ))}
+                            {mySalesData.length === 0 && (
+                                <tr>
+                                    <td colSpan={4} className="text-center py-6 text-gray-400">Belum ada riwayat closing yang tercatat.</td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+export function ManageLeadsDashboard({ leadsData, showAlert }) {
+    const triggerWhatsApp = (lead) => {
+        const textMessage = `Halo Bpk/Ibu ${lead.name}, saya melihat Anda mengunduh contoh Perangkat Administrasi Modul Deeplearning di Sobat Guru Digital. Apakah ada materi jenjang tertentu yang sedang dibutuhkan saat ini?`;
+        window.open(`https://api.whatsapp.com/send?phone=${lead.phone.replace(/^0/, '+62')}&text=${encodeURIComponent(textMessage)}`, '_blank');
+        showAlert(`Menghubungi ${lead.name} via WhatsApp`, "CRM Sukses", "success");
+    };
+
+    return (
+        <div className="space-y-6 animate-in fade-in">
+            <div>
+                <h2 className="text-2xl font-bold text-blue-950">Pusat Data Leads (CRM)</h2>
+                <p className="text-gray-500 text-sm">Follow up para pendaftar sampel gratis di halaman website untuk dikonversi menjadi closing penjualan.</p>
+            </div>
+            <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm text-gray-600">
+                        <thead className="bg-gray-50 border-b text-xs font-bold uppercase text-gray-700">
+                            <tr>
+                                <th className="px-6 py-3">Tanggal Masuk</th>
+                                <th className="px-6 py-3">Nama Pendidik</th>
+                                <th className="px-6 py-3">Nomor WhatsApp</th>
+                                <th className="px-6 py-3 text-center">Aksi Hubungi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {leadsData.map((lead) => (
+                                <tr key={lead.id} className="border-b hover:bg-gray-50/50">
+                                    <td className="px-6 py-4 text-xs whitespace-nowrap">{lead.date?.slice(0, 10) || '-'}</td>
+                                    <td className="px-6 py-4 font-bold text-gray-900">{lead.name}</td>
+                                    <td className="px-6 py-4 font-mono text-gray-650 text-xs">{lead.phone}</td>
+                                    <td className="px-6 py-4 text-center">
+                                        <button onClick={() => triggerWhatsApp(lead)} className="bg-green-500 hover:bg-green-600 text-white font-bold py-1.5 px-4 rounded-xl text-xs transition">
+                                            Chat WhatsApp
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                            {leadsData.length === 0 && (
+                                <tr>
+                                    <td colSpan={4} className="text-center py-8 text-gray-400">Belum ada data leads yang terekam masuk.</td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+export function ManageBrandSettings({ appSettings, db, appId, showAlert }) {
+    const [faviconUrl, setFaviconUrl] = useState(appSettings.favicon || '');
+
+    const handleSaveConfig = async (e) => {
+        e.preventDefault();
+        try {
+            const settingsCollection = collection(db, 'artifacts', appId, 'public', 'data', 'settingsData');
+            await setDoc(doc(settingsCollection, 'global_config'), { favicon: faviconUrl }, { merge: true });
+            showAlert("Favicon aplikasi berhasil diperbarui secara real-time!", "Sukses", "success");
+        } catch (error) {
+            showAlert("Gagal mengupdate konfigurasi brand!", "Error", "error");
+        }
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-2xl border shadow-sm max-w-xl animate-in fade-in">
+            <div className="border-b pb-3 mb-4">
+                <h3 className="font-extrabold text-blue-950 text-lg">Pengaturan Branding Website</h3>
+                <p className="text-gray-500 text-xs">Ubah gambar ikon tab browser (Favicon) aplikasi Sobat Guru Digital tanpa bongkar server.</p>
+            </div>
+            <form onSubmit={handleSaveConfig} className="space-y-4">
+                <div className="space-y-1">
+                    <label className="block text-xs font-bold text-gray-700">Link URL Gambar Ikon (.ico / .png)</label>
+                    <input required type="url" value={faviconUrl} onChange={(e) => setFaviconUrl(e.target.value)} placeholder="https://linkwebsite.com/ikon.png" className="w-full border px-4 py-2.5 rounded-xl text-xs font-mono text-blue-700 bg-gray-50 focus:ring-2 focus:ring-blue-600 focus:outline-none" />
+                </div>
+                <div className="flex items-center gap-3 bg-amber-50 p-3 rounded-xl border border-amber-200">
+                    <img src={faviconUrl || 'https://react.dev/favicon.ico'} alt="Favicon Preview" className="w-8 h-8 rounded border bg-white object-contain" onError={(e) => { e.target.src = 'https://react.dev/favicon.ico'; }} />
+                    <p className="text-[10px] text-amber-800 font-medium">Kotak pratinjau aset logo brand Anda di atas. Pastikan tautan url gambar valid.</p>
+                </div>
+                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs shadow transition">
+                    Simpan Perubahan Aset Favicon
+                </button>
+            </form>
         </div>
     );
 }
