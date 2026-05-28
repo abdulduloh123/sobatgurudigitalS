@@ -3141,7 +3141,9 @@ function StaffCommissions({ staffName, salesData, payoutsData }) {
 
     const totalPaid = myPayouts.reduce((acc, curr) => acc + curr.amount, 0);
     const unpaidSales = mySales.filter(s => s.paymentStatus !== 'paid');
-    const unpaidCommissionAmount = unpaidSales.reduce((acc, curr) => acc + (acc.amount * 0.10), 0);
+    
+    // Perbaikan utama pada baris di bawah ini (menggunakan curr.amount)
+    const unpaidCommissionAmount = unpaidSales.reduce((acc, curr) => acc + (curr.amount * 0.10), 0);
 
     const dailyUnpaidSales = {};
     unpaidSales.forEach(sale => {
@@ -3327,7 +3329,6 @@ function StaffCommissions({ staffName, salesData, payoutsData }) {
         </div>
     );
 }
-
 // ==================== DAFTAR TAMBAHAN KOMPONEN BARU SUB-SISTEM ====================
 
 export function StaffResourceHub({ db, appId, user, showAlert }) {
