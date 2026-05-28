@@ -2647,7 +2647,34 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
                 kelipatanTotal += kelipatan;
             }
         });
-        return { name, total: staffStats[name].total, komisi, bonus, kelipatanTotal, totalPayout: komisi + bonus };
+
+        // SISTEM BARU: Menghitung akumulasi komisi yang BELUM DIBAYAR (Pending/Unpaid) pada periode ini
+        const staffSalesAll = salesData.filter(s => s.staffName === name && s.date >= startDate && s.date <= endDate);
+        const unpaidSales = staffSalesAll.filter(s => s.paymentStatus !== 'paid');
+        const unpaidCommission = unpaidSales.reduce((acc, curr) => acc + (curr.amount * 0.10), 0);
+        
+        const dailyUnpaid = {};
+        unpaidSales.forEach(sale => {
+            if (!dailyUnpaid[sale.date]) dailyUnpaid[sale.date] = 0;
+            dailyUnpaid[sale.date] += sale.amount;
+        });
+        let unpaidBonus = 0;
+        Object.values(dailyUnpaid).forEach(amount => {
+            if (amount >= 1000000) {
+                unpaidBonus += 50000 * Math.floor(amount / 1000000);
+            }
+        });
+        const totalUnpaid = unpaidCommission + unpaidBonus;
+
+        return { 
+            name, 
+            total: staffStats[name].total, 
+            komisi, 
+            bonus, 
+            kelipatanTotal, 
+            totalPayout: komisi + bonus,
+            totalUnpaid 
+        };
     });
 
     const staffList = usersData.filter(u => u.role === 'staff');
@@ -2669,7 +2696,6 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
         );
 
         const unpaidSales = staffSales.filter(s => s.paymentStatus !== 'paid');
-
         const unpaidCommission = unpaidSales.reduce((acc, curr) => acc + (curr.amount * 0.10), 0);
 
         const dailyUnpaid = {};
@@ -2724,7 +2750,6 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 h-fit animate-in">
                     <h3 className="font-extrabold text-blue-950 text-base border-b pb-3 mb-4 flex items-center gap-2">
                         <PlusCircle size={20} className="text-blue-600" />
@@ -2823,7 +2848,6 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
                     </div>
 
                     <div className="overflow-hidden rounded-xl border">
-
                         <table className="w-full text-left text-sm hidden md:table bg-white">
                             <thead className="bg-blue-900 text-white">
                                 <tr>
@@ -2842,7 +2866,15 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
                                 ) : (
                                     reportData.map((d, i) => (
                                         <tr key={i} className="border-b hover:bg-gray-50/50">
-                                            <td className="px-4 py-3 font-bold text-gray-800">{d.name}</td>
+                                            {/* BARU: Notifikasi Lampu Berkedip Merah di Desktop jika ada yang belum digaji */}
+                                            <td className="px-4 py-3 font-bold text-gray-800">
+                                                <div>{d.name}</div>
+                                                {d.totalUnpaid > 0 && (
+                                                    <span className="text-[10px] bg-red-50 text-red-600 font-bold px-1.5 py-0.5 rounded flex items-center gap-1 w-fit mt-1 border border-red-200 animate-pulse">
+                                                        ⚠️ Belum Digaji: Rp {d.totalUnpaid.toLocaleString('id-ID')}
+                                                    </span>
+                                                )}
+                                            </td>
                                             <td className="px-4 py-3 text-right font-semibold whitespace-nowrap">Rp {d.total.toLocaleString('id-ID')}</td>
                                             <td className="px-4 py-3 text-right text-blue-600 font-semibold whitespace-nowrap">Rp {d.komisi.toLocaleString('id-ID')}</td>
                                             <td className="px-4 py-3 text-right text-amber-600 font-semibold whitespace-nowrap">Rp {d.bonus.toLocaleString('id-ID')} ({d.kelipatanTotal}x)</td>
@@ -2863,6 +2895,12 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
                                             <span className="font-bold text-gray-800 text-sm">{d.name}</span>
                                             <span className="text-xs bg-green-50 text-green-700 font-extrabold px-2 py-0.5 rounded-full text-[10px]">Total: Rp {d.totalPayout.toLocaleString('id-ID')}</span>
                                         </div>
+                                        {/* BARU: Banner Notifikasi Peringatan di HP */}
+                                        {d.totalUnpaid > 0 && (
+                                            <div className="bg-red-50 text-red-700 font-bold text-[11px] p-1.5 rounded-lg border border-red-200 flex items-center gap-1 animate-pulse">
+                                                ⚠️ Ada komisi belum digaji: Rp {d.totalUnpaid.toLocaleString('id-ID')}
+                                            </div>
+                                        )}
                                         <div className="grid grid-cols-2 gap-y-1 text-xs text-gray-600 font-medium">
                                             <span>Omzet Penjualan:</span>
                                             <span className="text-right font-bold text-gray-800">Rp {d.total.toLocaleString('id-ID')}</span>
@@ -2877,7 +2915,6 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
                                 ))
                             )}
                         </div>
-
                     </div>
                 </div>
             </div>
