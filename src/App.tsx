@@ -6,11 +6,11 @@ import {
     Lock, LayoutDashboard, LogOut, PlusCircle,
     DollarSign, TrendingUp, User, ShoppingBag, ArrowRight,
     Users, Trash2, Key, Award, Search, Filter, BarChart3, PieChart,
-    Download, ChevronDown, ChevronUp, Package, Trophy, Menu, Clock
+    Download, ChevronDown, ChevronUp, Package, Trophy, Menu, Clock, Upload
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, setDoc } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, setDoc, writeBatch } from 'firebase/firestore';
 
 // 1. Inisialisasi Cloud Database Resmi Sobat Guru Digital
 const firebaseConfig = {
@@ -160,8 +160,8 @@ export default function App() {
             unsubscribeExpenses();
             unsubscribePreviews();
             unsubscribePayouts();
-            unsubscribeLeads();      // <-- Tambahkan ini
-            unsubscribeSettings();   // <-- Tambahkan ini
+            unsubscribeLeads();
+            unsubscribeSettings();
         };
     }, [firebaseUser]);
 
@@ -319,6 +319,23 @@ export default function App() {
         }
     };
 
+    const writeActivityLog = async (actionType, description, specificUser = null) => {
+        if (!db) return;
+        try {
+            const userRef = specificUser || currentUser || { name: 'Guest/System', role: 'unknown', username: 'unknown', id: 'N/A' };
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'activityLogs'), {
+                timestamp: new Date().toISOString(),
+                userId: userRef.id || 'N/A',
+                userName: userRef.name || userRef.username || 'Unknown',
+                role: userRef.role || 'unknown',
+                actionType,
+                description
+            });
+        } catch (error) {
+            console.error("Gagal mencatat log aktivitas:", error);
+        }
+    };
+
     return (
         <div className="min-h-screen bg-gray-50 text-gray-800">
             {currentView === 'landing' && (
@@ -330,7 +347,7 @@ export default function App() {
                     showAlert={showAlert}
                 />
             )}
-            {currentView === 'login' && <LoginPage setView={setCurrentView} onLogin={handleLogin} usersData={usersData} />}
+            {currentView === 'login' && <LoginPage setView={setCurrentView} onLogin={handleLogin} usersData={usersData} writeActivityLog={writeActivityLog} />}
             {currentView === 'dashboard' && currentUser && (
                 <Dashboard
                     user={currentUser}
@@ -360,6 +377,7 @@ export default function App() {
                     appSettings={appSettings}
                     db={db}
                     appId={appId}
+                    writeActivityLog={writeActivityLog}
                 />
             )}
 
@@ -434,6 +452,29 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
     const [leadModal, setLeadModal] = useState(false);
     const [leadForm, setLeadForm] = useState({ name: '', phone: '' });
     const [openFaq, setOpenFaq] = useState(null);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [categoryFilter, setCategoryFilter] = useState('Semua');
+    const [catalogPage, setCatalogPage] = useState(1);
+    const itemsPerPage = 6;
+
+    useEffect(() => {
+        setCatalogPage(1);
+    }, [searchQuery, categoryFilter]);
+
+    const defaultCatalog = [
+        { id: 1, name: "Modul Lengkap SD", jenjang: "SD/MI", desc: "Kelas 1-6 Lengkap Prota, Prosem, LKPD, ATP", price: 150000 },
+        { id: 2, name: "Modul Lengkap SMP", jenjang: "SMP/MTs", desc: "Kelas 7-9 Lengkap dengan Rubrik Penilaian", price: 150000 }
+    ];
+    const dataToDisplay = catalogData.length > 0 ? catalogData : defaultCatalog;
+
+    const filteredCatalog = dataToDisplay.filter(item => {
+        const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.desc.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesCategory = categoryFilter === 'Semua' || (item.jenjang && item.jenjang.includes(categoryFilter));
+        return matchesSearch && matchesCategory;
+    });
+
+    const totalCatalogPages = Math.ceil(filteredCatalog.length / itemsPerPage);
+    const paginatedCatalog = filteredCatalog.slice((catalogPage - 1) * itemsPerPage, catalogPage * itemsPerPage);
 
     const getPreviewSlot = (slotKey) => {
         const found = previewsData.find(p => p.id === slotKey || p.slot === slotKey);
@@ -590,32 +631,68 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
 
             <section className="py-16 px-4 bg-white">
                 <div className="max-w-5xl mx-auto">
-                    <div className="text-center mb-12">
+                    <div className="text-center mb-8">
                         <span className="text-blue-600 font-bold text-sm tracking-widest uppercase bg-blue-100 px-3 py-1 rounded-full">Katalog Produk</span>
                         <h2 className="text-3xl md:text-4xl font-extrabold text-gray-800 mt-3">Pilihan Paket Modul Ajar</h2>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {(catalogData.length > 0 ? catalogData : [
-                            { id: 1, name: "Modul Lengkap SD", jenjang: "SD/MI", desc: "Kelas 1-6 Lengkap Prota, Prosem, LKPD, ATP", price: 150000 },
-                            { id: 2, name: "Modul Lengkap SMP", jenjang: "SMP/MTs", desc: "Kelas 7-9 Lengkap dengan Rubrik Penilaian", price: 150000 }
-                        ]).map(item => (
+
+                    <div className="mb-8 flex flex-col md:flex-row gap-4 items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                        <div className="w-full md:w-1/3 flex items-center bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 focus-within:ring-2 focus-within:ring-blue-500 transition">
+                            <Search size={18} className="text-gray-400 mr-2" />
+                            <input
+                                type="text"
+                                placeholder="Cari modul..."
+                                value={searchQuery}
+                                onChange={e => setSearchQuery(e.target.value)}
+                                className="bg-transparent border-none w-full focus:outline-none text-gray-880 text-sm"
+                            />
+                        </div>
+                        <div className="flex gap-2 overflow-x-auto w-full md:w-auto pb-2 md:pb-0 hide-scrollbar">
+                            {['Semua', 'SD', 'SMP', 'SMA'].map(cat => (
+                                <button
+                                    key={cat}
+                                    onClick={() => setCategoryFilter(cat)}
+                                    className={`px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all ${categoryFilter === cat ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                >
+                                    {cat}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Compact View Grid Optimization for Mobile Screen Scannability */}
+                    <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6">
+                        {paginatedCatalog.length > 0 ? paginatedCatalog.map(item => (
                             <div key={item.id} className="bg-gray-50 rounded-2xl shadow-md border border-gray-100 overflow-hidden flex flex-col transition hover:shadow-xl">
-                                <div className="bg-blue-900 p-4 text-center border-b-4 border-yellow-500">
-                                    <span className="inline-block bg-blue-800 text-blue-100 text-[10px] font-bold px-2 py-0.5 rounded-full mb-2 uppercase">{item.jenjang}</span>
-                                    <h3 className="text-xl font-bold text-white">{item.name}</h3>
+                                <div className="bg-blue-900 p-2.5 sm:p-4 text-center border-b-4 border-yellow-500">
+                                    <span className="inline-block bg-blue-800 text-blue-100 text-[9px] sm:text-[10px] font-bold px-2 py-0.5 rounded-full mb-1 sm:mb-2 uppercase">{item.jenjang}</span>
+                                    <h3 className="text-sm sm:text-xl font-bold text-white line-clamp-1">{item.name}</h3>
                                 </div>
-                                <div className="p-6 flex-grow flex flex-col">
-                                    <p className="text-gray-600 text-sm flex-grow mb-6">{item.desc}</p>
-                                    <div className="border-t border-gray-100 pt-4 flex justify-between items-center">
-                                        <span className="text-sm text-gray-500">Harga:</span>
-                                        <span className="text-xl font-bold text-green-600">Rp {Number(item.price).toLocaleString('id-ID')}</span>
+                                <div className="p-3 sm:p-6 flex-grow flex flex-col justify-between">
+                                    <p className="text-gray-600 text-[11px] sm:text-sm line-clamp-2 mb-4">{item.desc}</p>
+                                    <div>
+                                        <div className="border-t border-gray-100 pt-2.5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1">
+                                            <span className="text-[10px] sm:text-sm text-gray-500">Harga:</span>
+                                            <span className="text-sm sm:text-xl font-bold text-green-600">Rp {typeof item.price === 'number' ? item.price.toLocaleString('id-ID') : item.price}</span>
+                                        </div>
+                                        <button onClick={() => redirectWA(`Halo Admin, saya mau pesan ${item.name}`)} className="mt-3 w-full bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-1.5 sm:py-2 rounded-xl transition text-[11px] sm:text-sm flex justify-center items-center gap-1.5">
+                                            <ShoppingBag size={14} /> <span className="hidden sm:inline">Pesan Sekarang</span><span className="inline sm:hidden">Pesan</span>
+                                        </button>
                                     </div>
-                                    <button onClick={() => redirectWA(`Halo Admin, saya mau pesan ${item.name}`)} className="mt-4 w-full bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-2 rounded-xl transition text-sm flex justify-center items-center gap-2">
-                                        <ShoppingBag size={16} /> Pesan Sekarang
-                                    </button>
                                 </div>
                             </div>
-                        ))}
+                        )) : (
+                            <div className="col-span-full py-12 text-center bg-gray-50 rounded-2xl border border-gray-100">
+                                <Search size={48} className="mx-auto text-gray-300 mb-4" />
+                                <h3 className="text-lg font-bold text-gray-700 mb-1">Produk Tidak Ditemukan</h3>
+                                <p className="text-sm text-gray-500">Coba gunakan kata kunci atau filter jenjang yang lain.</p>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Pagination control */}
+                    <div className="mt-8">
+                        <Pagination currentPage={catalogPage} totalPages={totalCatalogPages} onPageChange={setCatalogPage} />
                     </div>
                 </div>
             </section>
@@ -678,7 +755,7 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
                         </div>
 
                         <div className="bg-white rounded-2xl shadow-md overflow-hidden transform hover:-translate-y-2 hover:shadow-xl transition duration-300 flex flex-col border border-gray-100">
-                            <div className="h-52 bg-gradient-to-br from-yellow-50 to-amber-100 flex items-center justify-center relative group cursor-pointer" onClick={() => openPdfModal(slotIsi.url, slotIsi.title)}>
+                            <div className="h-52 bg-gradient-to-br from-yellow-50 to-amber-100 flex items-center justify-center relative group pointer-events-auto" onClick={() => openPdfModal(slotIsi.url, slotIsi.title)}>
                                 <div className="w-24 h-32 bg-white shadow-lg rounded-md border border-gray-200 p-3 transition duration-300 group-hover:scale-105">
                                     <div className="w-full h-3 bg-amber-500 rounded-sm mb-3"></div>
                                     <div className="w-full h-8 bg-amber-50/50 border border-dashed border-amber-200 flex items-center justify-center text-[7px] text-amber-600 font-bold">MODUL & LKPD</div>
@@ -717,7 +794,7 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
                                     <p className="text-xs text-gray-500">Guru SD - Jawa Tengah</p>
                                 </div>
                             </div>
-                            <p className="text-gray-600 text-sm italic">"Alhamdulillah, modulnya sangat membantu. Saya lulus UKIN PPG Daljab kemarin. Terima kasih admin fast respon!"</p>
+                            <p className="text-gray-600 text-sm italic">\"Alhamdulillah, modulnya sangat membantu. Saya lulus UKIN PPG Daljab kemarin. Terima kasih admin fast respon!\"</p>
                             <div className="text-yellow-400 text-xs mt-3 flex gap-0.5">
                                 <Star size={12} fill="currentColor" /><Star size={12} fill="currentColor" /><Star size={12} fill="currentColor" /><Star size={12} fill="currentColor" /><Star size={12} fill="currentColor" />
                             </div>
@@ -731,7 +808,7 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
                                     <p className="text-xs text-gray-500">Guru PAI - MTs</p>
                                 </div>
                             </div>
-                            <p className="text-gray-600 text-sm italic">"Aminn. Alhamdulillah, Awalnya ragu karena online, ternyata file sudah sesuai CP nya lengkap. Supervisi pengawas jadi aman."</p>
+                            <p className="text-gray-600 text-sm italic">\"Aminn. Alhamdulillah, Awalnya ragu karena online, ternyata file sudah sesuai CP nya lengkap. Supervisi pengawas jadi aman.\"</p>
                             <div className="text-yellow-400 text-xs mt-3 flex gap-0.5">
                                 <Star size={12} fill="currentColor" /><Star size={12} fill="currentColor" /><Star size={12} fill="currentColor" /><Star size={12} fill="currentColor" /><Star size={12} fill="currentColor" />
                             </div>
@@ -745,7 +822,7 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
                                     <p className="text-xs text-gray-500">Guru Bahasa Inggris - SMA</p>
                                 </div>
                             </div>
-                            <p className="text-gray-600 text-sm italic">"Kurikulum berbasis cintanya Sudah sesuai Panduan Resmi. Siswa jadi lebih antusias. Recommended buat yg sibuk!"</p>
+                            <p className="text-gray-600 text-sm italic">\"Kurikulum berbasis cintanya Sudah sesuai Panduan Resmi. Siswa jadi lebih antusias. Recommended buat yg sibuk!\"</p>
                             <div className="text-yellow-400 text-xs mt-3 flex gap-0.5">
                                 <Star size={12} fill="currentColor" /><Star size={12} fill="currentColor" /><Star size={12} fill="currentColor" /><Star size={12} fill="currentColor" /><Star size={12} fill="currentColor" />
                             </div>
@@ -862,23 +939,31 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
 
 // ---------------------- HALAMAN LOGIN ----------------------
 
-function LoginPage({ setView, onLogin, usersData }) {
+function LoginPage({ setView, onLogin, usersData, writeActivityLog }) {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
 
-    const handleSubmit = (e) => {
+    const FALLBACK_ADMIN = {
+        id: 'admin-fallback',
+        name: 'Admin Sobat Guru',
+        username: 'admin',
+        password: 'admin123',
+        role: 'admin'
+    };
+
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        const matchedUser = usersData.find(u => u.username === username && u.password === password);
+        const matchedUser = usersData.find(u => u.username === username && u.password === password)
+            || (username === FALLBACK_ADMIN.username && password === FALLBACK_ADMIN.password ? FALLBACK_ADMIN : null);
         if (matchedUser) {
+            try { await writeActivityLog('LOGIN_SUCCESS', `User ${matchedUser.name} berhasil login.`, matchedUser); } catch (e) { }
             onLogin(matchedUser);
-            return;
-        }
-        if (username === 'admin' && password === 'admin123') {
-            onLogin({ role: 'admin', name: 'Bapak Owner', username: 'admin' });
-        } else if (username === 'staff' && password === 'staff123') {
-            onLogin({ role: 'staff', name: 'Siti (Staff Default)', username: 'staff' });
         } else {
+            try {
+                const tempUser = { name: `Attempt: ${username}`, role: 'unknown', username, id: 'N/A' };
+                await writeActivityLog('LOGIN_FAILED', `Gagal login dengan username: ${username}`, tempUser);
+            } catch (e) { }
             setError('Username atau Password salah!');
         }
     };
@@ -896,11 +981,11 @@ function LoginPage({ setView, onLogin, usersData }) {
                     <form onSubmit={handleSubmit} className="space-y-5">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-                            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} required className="w-full border-gray-300 border px-4 py-2 rounded-lg bg-white text-gray-850" placeholder="Masukkan username" />
+                            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} required className="w-full border-gray-300 border px-4 py-2 rounded-lg bg-white text-gray-855" placeholder="Masukkan username" />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full border-gray-300 border px-4 py-2 rounded-lg bg-white text-gray-850" placeholder="••••••••" />
+                            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full border-gray-300 border px-4 py-2 rounded-lg bg-white text-gray-855" placeholder="••••••••" />
                         </div>
                         <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-md transition flex justify-center items-center gap-2">
                             Masuk Dashboard <ArrowRight size={18} />
@@ -920,7 +1005,7 @@ function Dashboard({
     usersData, addStaffUser, deleteStaffUser, catalogData,
     addProduct, updateProduct, deleteProduct, expensesData,
     addExpense, updateExpense, deleteExpense, previewsData,
-    payoutsData, updatePreview, payStaffCommission, showAlert, showConfirm, leadsData, appSettings, db, appId
+    payoutsData, updatePreview, payStaffCommission, showAlert, showConfirm, leadsData, appSettings, db, appId, writeActivityLog
 }) {
     const [activeTab, setActiveTab] = useState(user.role === 'staff' ? 'input' : 'overview');
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -1028,7 +1113,7 @@ function Dashboard({
                             showAlert={showAlert}
                         />
                     )}
-                    {user.role === 'admin' && activeTab === 'manage_catalog' && <ManageCatalog catalogData={catalogData} addProduct={addProduct} updateProduct={updateProduct} deleteProduct={deleteProduct} showConfirm={showConfirm} />}
+                    {user.role === 'admin' && activeTab === 'manage_catalog' && <ManageCatalog catalogData={catalogData} addProduct={addProduct} updateProduct={updateProduct} deleteProduct={deleteProduct} showConfirm={showConfirm} db={db} appId={appId} writeActivityLog={writeActivityLog} showAlert={showAlert} />}
                     {user.role === 'admin' && activeTab === 'manage_staff' && <ManageStaff usersData={usersData} addStaffUser={addStaffUser} deleteStaffUser={deleteStaffUser} showConfirm={showConfirm} />}
                     {user.role === 'admin' && activeTab === 'manage_leads' && (
                         <ManageLeadsDashboard leadsData={leadsData} showAlert={showAlert} />
@@ -1048,7 +1133,7 @@ function Dashboard({
                     {user.role === 'staff' && activeTab === 'my_ledger' && (
                         <StaffSalesLedger mySalesData={salesData.filter(s => s.staffName === user.name)} />
                     )}
-                    {user.role === 'staff' && activeTab === 'input' && <StaffInputForm addSale={addSale} userName={user.name} setTab={setActiveTab} catalogData={catalogData} />}
+                    {user.role === 'staff' && activeTab === 'input' && <StaffInputForm addSale={addSale} userName={user.name} setTab={setActiveTab} catalogData={catalogData} writeActivityLog={writeActivityLog} appSettings={appSettings} />}
                     {user.role === 'staff' && activeTab === 'my_sales' && <SalesTable data={salesData.filter(s => s.staffName === user.name)} title="Riwayat Penjualan Saya" showFilters={false} isAdmin={false} />}
                     {user.role === 'staff' && activeTab === 'my_commissions' && (
                         <StaffCommissions staffName={user.name} salesData={salesData} payoutsData={payoutsData} />
@@ -1219,9 +1304,9 @@ function AdminOverview({ salesData, expensesData }) {
     });
 
     const getDailyChartPoints = () => {
-        if (dailyStats.length === 0) return { rev: '', prof: '' };
+        if (dailyStats.length === 0) return { pointsRev: '', pointsProf: '', maxVal: 100000, width: 800 };
         const maxVal = Math.max(...dailyStats.map(s => Math.max(s.revenue, s.profit)), 100000);
-        const width = 800;
+        const width = Math.max(800, dailyStats.length * 50);
         const height = 200;
         const padding = 20;
 
@@ -1237,7 +1322,7 @@ function AdminOverview({ salesData, expensesData }) {
             return `${x},${y}`;
         }).join(' ');
 
-        return { pointsRev, pointsProf, maxVal };
+        return { pointsRev, pointsProf, maxVal, width };
     };
 
     const dailyPoints = getDailyChartPoints();
@@ -1257,14 +1342,14 @@ function AdminOverview({ salesData, expensesData }) {
                             type="date"
                             value={startDate}
                             onChange={e => setStartDate(e.target.value)}
-                            className="border px-2.5 py-1 text-xs rounded-lg bg-gray-50 text-gray-850 font-bold focus:ring-2 focus:ring-blue-500"
+                            className="border px-2.5 py-1 text-xs rounded-lg bg-gray-50 text-gray-855 font-bold focus:ring-2 focus:ring-blue-500"
                         />
                         <span className="text-xs text-gray-400">s/d</span>
                         <input
                             type="date"
                             value={endDate}
                             onChange={e => setEndDate(e.target.value)}
-                            className="border px-2.5 py-1 text-xs rounded-lg bg-gray-50 text-gray-850 font-bold focus:ring-2 focus:ring-blue-500"
+                            className="border px-2.5 py-1 text-xs rounded-lg bg-gray-50 text-gray-855 font-bold focus:ring-2 focus:ring-blue-500"
                         />
                     </div>
                 </div>
@@ -1283,7 +1368,7 @@ function AdminOverview({ salesData, expensesData }) {
                     <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center shadow-inner"><DollarSign size={28} /></div>
                 </div>
 
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:shadow-md transition">
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:shadow-md transition w-full">
                     <div className="space-y-2 w-full">
                         <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">Total Pengeluaran</p>
                         <h3 className="text-2xl font-black text-red-600">Rp {totalExpenses.toLocaleString('id-ID')}</h3>
@@ -1349,11 +1434,11 @@ function AdminOverview({ salesData, expensesData }) {
                             {dailyStats.length === 0 ? (
                                 <div className="flex-grow flex items-center justify-center text-gray-400 text-sm">Belum ada data transaksi harian pada rentang tanggal ini.</div>
                             ) : (
-                                <div className="min-w-[700px] w-full mx-auto flex-grow flex flex-col justify-between relative">
-                                    <svg viewBox="0 0 800 200" className="w-full h-44 overflow-visible">
-                                        <line x1="20" y1="20" x2="780" y2="20" stroke="#e5e7eb" strokeDasharray="4" />
-                                        <line x1="20" y1="100" x2="780" y2="100" stroke="#e5e7eb" strokeDasharray="4" />
-                                        <line x1="20" y1="180" x2="780" y2="180" stroke="#e5e7eb" strokeDasharray="4" />
+                                <div className="w-full mx-auto flex-grow flex flex-col justify-between relative" style={{ minWidth: `${dailyPoints.width}px` }}>
+                                    <svg viewBox={`0 0 ${dailyPoints.width} 200`} className="w-full h-44 overflow-visible">
+                                        <line x1="20" y1="20" x2={dailyPoints.width - 20} y2="20" stroke="#e5e7eb" strokeDasharray="4" />
+                                        <line x1="20" y1="100" x2={dailyPoints.width - 20} y2="100" stroke="#e5e7eb" strokeDasharray="4" />
+                                        <line x1="20" y1="180" x2={dailyPoints.width - 20} y2="180" stroke="#e5e7eb" strokeDasharray="4" />
 
                                         <polyline
                                             fill="none"
@@ -1374,7 +1459,7 @@ function AdminOverview({ salesData, expensesData }) {
                                         />
 
                                         {dailyStats.map((s, idx) => {
-                                            const width = 800;
+                                            const width = dailyPoints.width;
                                             const height = 200;
                                             const padding = 20;
                                             const x = padding + (idx * (width - padding * 2)) / Math.max((dailyStats.length - 1), 1);
@@ -1390,10 +1475,10 @@ function AdminOverview({ salesData, expensesData }) {
                                         })}
                                     </svg>
 
-                                    <div className="flex justify-between px-[20px] text-[10px] text-gray-500 font-bold border-t pt-2">
+                                    <div className="flex justify-between px-[20px] text-[10px] text-gray-500 font-bold border-t pt-2 w-full">
                                         {dailyStats.map((s, idx) => {
                                             const [_, m, d] = s.date.split('-');
-                                            return <span key={idx} className="w-12 text-center">{d}/{m}</span>;
+                                            return <span key={idx} className="w-12 text-center -ml-6">{d}/{m}</span>;
                                         })}
                                     </div>
                                 </div>
@@ -1527,12 +1612,29 @@ function SalesTable({
     deleteExpense,
     showConfirm
 }) {
-    const [subTab, setSubTab] = useState('cash_flow');
+    const [subTab, setSubTab] = useState('sales');
     const [cashFlowPeriod, setCashFlowPeriod] = useState('daily');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [filterStaff, setFilterStaff] = useState('');
+    const [monthFilter, setMonthFilter] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 25;
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery, filterStaff, monthFilter, subTab, cashFlowPeriod]);
+
+    let filteredSales = data.filter(sale => {
+        const matchSearch = sale.customer.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchStaff = filterStaff ? sale.staffName === filterStaff : true;
+        const matchMonth = monthFilter ? sale.date.startsWith(monthFilter) : true;
+        return matchSearch && matchStaff && matchMonth;
+    }).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const totalPages = Math.ceil(filteredSales.length / itemsPerPage);
+    const paginatedSales = filteredSales.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
     // Sales filters
-    const [filterStaff, setFilterStaff] = useState('');
-    const [searchQuery, setSearchQuery] = useState('');
     const [editingId, setEditingId] = useState(null);
     const [editForm, setEditForm] = useState({ date: '', customer: '', product: '', notes: '', amount: 0 });
 
@@ -1586,12 +1688,6 @@ function SalesTable({
         setEditingExpenseId(null);
     };
 
-    // Sales Filtering
-    const filteredSales = data.filter(sale => {
-        let matchStaff = filterStaff ? sale.staffName === filterStaff : true;
-        let matchSearch = searchQuery ? sale.customer.toLowerCase().includes(searchQuery.toLowerCase()) : true;
-        return matchStaff && matchSearch;
-    });
 
     // Expenses Filtering
     const filteredExpenses = expensesData.filter(exp => {
@@ -1695,12 +1791,12 @@ function SalesTable({
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredSales.length === 0 ? (
+                                {paginatedSales.length === 0 ? (
                                     <tr>
                                         <td colSpan={4} className="text-center py-6 text-gray-400">Belum ada riwayat penjualan.</td>
                                     </tr>
                                 ) : (
-                                    filteredSales.map(sale => (
+                                    paginatedSales.map(sale => (
                                         <tr key={sale.id} className="border-b hover:bg-gray-50">
                                             <td className="px-4 py-3 whitespace-nowrap">{sale.date}</td>
                                             <td className="px-4 py-3 font-medium text-gray-800">{sale.customer}</td>
@@ -1714,13 +1810,13 @@ function SalesTable({
                     </div>
 
                     <div className="block md:hidden space-y-3 p-3 bg-gray-50">
-                        {filteredSales.length === 0 ? (
+                        {paginatedSales.length === 0 ? (
                             <p className="text-center py-6 text-gray-400 text-xs">Belum ada riwayat penjualan.</p>
                         ) : (
-                            filteredSales.map(sale => (
+                            paginatedSales.map(sale => (
                                 <div key={sale.id} className="bg-white p-4 rounded-xl border shadow-sm space-y-2.5">
                                     <div className="flex justify-between items-center border-b pb-1.5">
-                                        <span className="font-bold text-gray-850 text-sm">{sale.customer}</span>
+                                        <span className="font-bold text-gray-855 text-sm">{sale.customer}</span>
                                         <span className="text-[10px] text-gray-400 font-semibold">{sale.date}</span>
                                     </div>
                                     <div className="grid grid-cols-2 gap-y-1 text-xs text-gray-600 font-medium">
@@ -1734,7 +1830,7 @@ function SalesTable({
                             ))
                         )}
                     </div>
-
+                    <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
                 </div>
             </div>
         );
@@ -1777,13 +1873,13 @@ function SalesTable({
                         <div className="flex gap-1.5 bg-gray-100 p-1 rounded-lg">
                             <button
                                 onClick={() => setCashFlowPeriod('daily')}
-                                className={`text-xs font-semibold py-1.5 px-3 rounded-lg transition-all ${cashFlowPeriod === 'daily' ? 'bg-white text-gray-850 shadow-sm' : 'text-gray-500'}`}
+                                className={`text-xs font-semibold py-1.5 px-3 rounded-lg transition-all ${cashFlowPeriod === 'daily' ? 'bg-white text-gray-855 shadow-sm' : 'text-gray-500'}`}
                             >
                                 Harian
                             </button>
                             <button
-                                onClick={() => setCashFlowPeriod('monthly')}
-                                className={`text-xs font-semibold py-1.5 px-3 rounded-lg transition-all ${cashFlowPeriod === 'monthly' ? 'bg-white text-gray-850 shadow-sm' : 'text-gray-500'}`}
+                                onClick={() => setChartPeriod('monthly')}
+                                className={`text-xs font-semibold py-1.5 px-3 rounded-lg transition-all ${cashFlowPeriod === 'monthly' ? 'bg-white text-gray-855 shadow-sm' : 'text-gray-500'}`}
                             >
                                 Bulanan
                             </button>
@@ -1870,7 +1966,7 @@ function SalesTable({
                                 placeholder="Cari nama kustomer..."
                                 value={searchQuery}
                                 onChange={e => setSearchQuery(e.target.value)}
-                                className="bg-transparent border-none text-sm w-full focus:outline-none text-gray-850"
+                                className="bg-transparent border-none text-sm w-full focus:outline-none text-gray-855"
                             />
                         </div>
 
@@ -1903,12 +1999,12 @@ function SalesTable({
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredSales.length === 0 ? (
+                                    {paginatedSales.length === 0 ? (
                                         <tr>
                                             <td colSpan={6} className="text-center py-8 text-gray-400">Tidak ada transaksi penjualan yang cocok.</td>
                                         </tr>
                                     ) : (
-                                        filteredSales.map(sale => (
+                                        paginatedSales.map(sale => (
                                             <tr key={sale.id} className="border-b hover:bg-gray-50/50 animate-in">
                                                 {editingId === sale.id ? (
                                                     <>
@@ -1952,10 +2048,10 @@ function SalesTable({
                         </div>
 
                         <div className="block md:hidden space-y-3 p-3 bg-gray-50">
-                            {filteredSales.length === 0 ? (
+                            {paginatedSales.length === 0 ? (
                                 <p className="text-center py-6 text-gray-400 text-xs">Tidak ada transaksi penjualan yang cocok.</p>
                             ) : (
-                                filteredSales.map(sale => (
+                                paginatedSales.map(sale => (
                                     <div key={sale.id} className="bg-white p-4 rounded-xl border shadow-sm space-y-2">
                                         {editingId === sale.id ? (
                                             <div className="space-y-3 animate-in slide-in-from-top-2">
@@ -2010,7 +2106,7 @@ function SalesTable({
                                 ))
                             )}
                         </div>
-
+                        <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
                     </div>
                 </div>
             )}
@@ -2132,7 +2228,7 @@ function SalesTable({
                                                             <>
                                                                 <td className="px-4 py-2"><input type="date" value={editExpenseForm.date} onChange={e => setEditExpenseForm({ ...editExpenseForm, date: e.target.value })} className="border px-2 py-1 rounded w-full text-xs bg-white text-gray-800" /></td>
                                                                 <td className="px-4 py-2">
-                                                                    <select value={editExpenseForm.category} onChange={e => setEditExpenseForm({ ...editExpenseForm, category: e.target.value })} className="border px-2 py-1 rounded w-full text-xs bg-white text-gray-850">
+                                                                    <select value={editExpenseForm.category} onChange={e => setEditExpenseForm({ ...editExpenseForm, category: e.target.value })} className="border px-2 py-1 rounded w-full text-xs bg-white text-gray-855">
                                                                         <option value="Operasional">Operasional</option>
                                                                         <option value="Marketing">Marketing</option>
                                                                         <option value="Gaji">Gaji</option>
@@ -2300,7 +2396,7 @@ function ManagePreviews({ previewsData, updatePreview, showAlert }) {
                                         type="text"
                                         value={forms[slot].title}
                                         onChange={e => handleChange(slot, 'title', e.target.value)}
-                                        className="w-full border px-3 py-2 rounded-lg text-sm bg-white font-medium text-gray-850"
+                                        className="w-full border px-3 py-2 rounded-lg text-sm bg-white font-medium text-gray-855"
                                     />
                                 </div>
                                 <div>
@@ -2309,7 +2405,7 @@ function ManagePreviews({ previewsData, updatePreview, showAlert }) {
                                         rows={3}
                                         value={forms[slot].desc}
                                         onChange={e => handleChange(slot, 'desc', e.target.value)}
-                                        className="w-full border px-3 py-2 rounded-lg text-sm bg-white font-medium text-gray-650"
+                                        className="w-full border px-3 py-2 rounded-lg text-sm bg-white font-medium text-gray-655"
                                     />
                                 </div>
                                 <div>
@@ -2337,7 +2433,104 @@ function ManagePreviews({ previewsData, updatePreview, showAlert }) {
     );
 }
 
-function ManageCatalog({ catalogData, addProduct, updateProduct, deleteProduct, showConfirm }) {
+function BulkImportCatalog({ db, appId, writeActivityLog, showAlert }) {
+    const [previewData, setPreviewData] = useState([]);
+    const [fileObj, setFileObj] = useState(null);
+    const [isUploading, setIsUploading] = useState(false);
+
+    const handleFileUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setFileObj(file);
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            const text = evt.target.result;
+            const lines = text.split('\n').map(line => line.trim()).filter(line => line);
+            if (lines.length <= 1) {
+                showAlert('Format CSV kosong atau tidak valid!', 'Error', 'error');
+                return;
+            }
+
+            const parsed = [];
+            for (let i = 1; i < lines.length; i++) {
+                const row = lines[i].split(',').map(s => s.replace(/(^"|"$)/g, '').trim());
+                if (row.length >= 4) {
+                    parsed.push({
+                        name: row[0],
+                        jenjang: row[1],
+                        desc: row[2],
+                        price: Number(row[3].replace(/[^0-9.-]+/g, "")) || 0
+                    });
+                }
+            }
+            setPreviewData(parsed);
+        };
+        reader.readAsText(file);
+    };
+
+    const handleUploadBatch = async () => {
+        if (!previewData.length) return;
+        setIsUploading(true);
+        try {
+            const chunks = [];
+            for (let i = 0; i < previewData.length; i += 400) {
+                chunks.push(previewData.slice(i, i + 400));
+            }
+
+            for (let chunk of chunks) {
+                const batch = writeBatch(db);
+                chunk.forEach(item => {
+                    const docRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'catalogData'));
+                    batch.set(docRef, item);
+                });
+                await batch.commit();
+            }
+
+            showAlert(`Sukses mengimport ${previewData.length} data katalog!`, 'Sukses', 'success');
+            if (writeActivityLog) {
+                await writeActivityLog('BULK_IMPORT', `Admin melakukan import massal ${previewData.length} data katalog`);
+            }
+            setPreviewData([]);
+            setFileObj(null);
+        } catch (error) {
+            console.error(error);
+            showAlert('Gagal mengimport data', 'Error', 'error');
+        }
+        setIsUploading(false);
+    };
+
+    return (
+        <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 shadow-sm mb-6">
+            <h3 className="font-bold text-blue-900 mb-2 flex items-center gap-2"><Upload size={18} /> Import Massal Katalog (CSV)</h3>
+            <p className="text-xs text-blue-700 mb-4">Format CSV harus memiliki header: Nama Paket, Jenjang, Deskripsi, Harga (dipisahkan koma).</p>
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+                <input type="file" accept=".csv" onChange={handleFileUpload} className="text-sm bg-white border p-1 rounded" />
+                {previewData.length > 0 && (
+                    <button onClick={handleUploadBatch} disabled={isUploading} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition shadow-sm">
+                        {isUploading ? 'Mengunggah...' : `Mulai Upload (${previewData.length} data)`}
+                    </button>
+                )}
+            </div>
+            {previewData.length > 0 && (
+                <div className="mt-4 overflow-x-auto">
+                    <p className="text-xs font-bold text-gray-700 mb-2">Preview (Maks 3 baris pertama):</p>
+                    <table className="w-full text-left text-xs bg-white border min-w-[500px]">
+                        <thead className="bg-gray-100 border-b">
+                            <tr><th className="p-2">Nama Paket</th><th className="p-2">Jenjang</th><th className="p-2">Deskripsi</th><th className="p-2">Harga</th></tr>
+                        </thead>
+                        <tbody>
+                            {previewData.slice(0, 3).map((item, idx) => (
+                                <tr key={idx} className="border-b"><td className="p-2 font-bold">{item.name}</td><td className="p-2">{item.jenjang}</td><td className="p-2 truncate max-w-xs">{item.desc}</td><td className="p-2 text-green-600 font-bold">Rp {item.price.toLocaleString('id-ID')}</td></tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function ManageCatalog({ catalogData, addProduct, updateProduct, deleteProduct, showConfirm, db, appId, writeActivityLog, showAlert }) {
     const [form, setForm] = useState({ name: '', jenjang: 'SD/MI', desc: '', price: '' });
     const [editId, setEditId] = useState(null);
 
@@ -2355,6 +2548,7 @@ function ManageCatalog({ catalogData, addProduct, updateProduct, deleteProduct, 
     return (
         <div className="animate-in fade-in space-y-6 pt-4 md:pt-0">
             <h1 className="text-2xl font-bold text-gray-800 text-blue-950">Manajemen Katalog Landing Page</h1>
+            <BulkImportCatalog db={db} appId={appId} writeActivityLog={writeActivityLog} showAlert={showAlert} />
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-xl shadow-sm border h-fit animate-in">
                     <h3 className="font-bold text-blue-900 border-b pb-2 mb-4">{editId ? 'Edit Produk' : 'Tambah Produk Baru'}</h3>
@@ -2542,7 +2736,7 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
                             <select
                                 value={selectedStaff}
                                 onChange={e => { setSelectedStaff(e.target.value); setCalcResult(null); }}
-                                className="w-full border px-3 py-2 rounded-lg text-sm bg-white text-gray-850 font-bold"
+                                className="w-full border px-3 py-2 rounded-lg text-sm bg-white text-gray-855 font-bold"
                             >
                                 <option value="">-- Pilih Staff --</option>
                                 {staffList.map((st, i) => (
@@ -2561,7 +2755,7 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
                                     type="date"
                                     value={payStart}
                                     onChange={e => { setPayStart(e.target.value); setCalcResult(null); }}
-                                    className="w-full border px-3 py-2 rounded-lg text-xs bg-gray-50 text-gray-850 font-bold"
+                                    className="w-full border px-3 py-2 rounded-lg text-xs bg-gray-50 text-gray-855 font-bold"
                                 />
                             </div>
                             <div>
@@ -2570,7 +2764,7 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
                                     type="date"
                                     value={payEnd}
                                     onChange={e => { setPayEnd(e.target.value); setCalcResult(null); }}
-                                    className="w-full border px-3 py-2 rounded-lg text-xs bg-gray-50 text-gray-850 font-bold"
+                                    className="w-full border px-3 py-2 rounded-lg text-xs bg-gray-50 text-gray-855 font-bold"
                                 />
                             </div>
                         </div>
@@ -2623,8 +2817,8 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b">
                         <span className="text-sm font-extrabold text-blue-950">Rekap Gaji / Komisi Periode Penjualan</span>
                         <div className="flex gap-2 w-full sm:w-auto">
-                            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="border px-3 py-1.5 rounded-lg text-xs bg-gray-50 flex-1 sm:flex-initial" />
-                            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="border px-3 py-1.5 rounded-lg text-xs bg-gray-50 flex-1 sm:flex-initial" />
+                            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="border px-3 py-1.5 rounded-lg text-xs bg-gray-50 flex-1 sm:flex-initial text-gray-855" />
+                            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="border px-3 py-1.5 rounded-lg text-xs bg-gray-50 flex-1 sm:flex-initial text-gray-855" />
                         </div>
                     </div>
 
@@ -2758,46 +2952,184 @@ function ManageStaff({ usersData, addStaffUser, deleteStaffUser, showConfirm }) 
     );
 }
 
-function StaffInputForm({ addSale, userName, setTab, catalogData }) {
-    const defaultProduct = catalogData.length > 0 ? catalogData[0].name : 'Modul SD/MI';
-    const [form, setForm] = useState({ date: new Date().toISOString().split('T')[0], customer: '', product: defaultProduct, amount: '', notes: '' });
+// Overhauled Custom Multi-Dropdown & Negotiable Automated Pricing Form for WhatsApp Closing Flow
+function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityLog, appSettings }) {
+    const [form, setForm] = useState({
+        date: new Date().toISOString().split('T')[0],
+        customer: '',
+        amount: '',
+        notes: ''
+    });
 
-    const handleSubmit = (e) => {
+    const [items, setItems] = useState([
+        { id: Date.now(), jenjang: 'SD - Kelas 1', mapel: 'Matematika', customText: '' }
+    ]);
+
+    const jenjangOptions = [
+        'SD - Kelas 1', 'SD - Kelas 2', 'SD - Kelas 3', 'SD - Kelas 4', 'SD - Kelas 5', 'SD - Kelas 6',
+        'SMP - Kelas 7', 'SMP - Kelas 8', 'SMP - Kelas 9',
+        'SMA - Kelas 10', 'SMA - Kelas 11', 'SMA - Kelas 12',
+        'Paket Lengkap SD', 'Paket Lengkap SMP', 'Paket Lengkap SMA',
+        'Kustom / Lainnya'
+    ];
+
+    const daftarMapelDariAdmin = appSettings?.mapelList
+        ? appSettings.mapelList.split(',').map(s => s.trim()).filter(s => s)
+        : ['Matematika', 'Bahasa Indonesia', 'Bahasa Inggris', 'IPA', 'IPS', 'Pancasila / PKn', 'PAI (Agama)', 'PJOK', 'Seni Budaya', 'Tematik', 'Semua Mapel (Paket)'];
+
+    const mapelOptions = daftarMapelDariAdmin.includes('Kustom / Tulis Manual')
+        ? daftarMapelDariAdmin
+        : [...daftarMapelDariAdmin, 'Kustom / Tulis Manual'];
+
+    const dapatkanRekomendasiHarga = (item) => {
+        if (item.jenjang.includes('Paket Lengkap')) return Number(appSettings?.priceLengkap) || 150000;
+        if (item.jenjang.startsWith('SD')) return Number(appSettings?.priceSD) || 35000;
+        if (item.jenjang.startsWith('SMP')) return Number(appSettings?.priceSMP) || 45000;
+        if (item.jenjang.startsWith('SMA')) return Number(appSettings?.priceSMA) || 55000;
+        return Number(appSettings?.priceKustom) || 50000;
+    };
+    // Sinkronisasi otomatis total nominal rekomendasi, tetapi staff tetap bisa edit sesuka hati (nego)
+    useEffect(() => {
+        const totalHargaDianjurkan = items.reduce((acc, curr) => acc + dapatkanRekomendasiHarga(curr), 0);
+        setForm(prev => ({ ...prev, amount: totalHargaDianjurkan.toString() }));
+    }, [items]);
+
+    const tambahBarisItem = () => {
+        setItems([...items, { id: Date.now() + Math.random(), jenjang: 'SD - Kelas 1', mapel: 'Matematika', customText: '' }]);
+    };
+
+    const hapusBarisItem = (id) => {
+        if (items.length === 1) return;
+        setItems(items.filter(item => item.id !== id));
+    };
+
+    const ubahDataBaris = (id, field, value) => {
+        setItems(items.map(item => item.id === id ? { ...item, [field]: value } : item));
+    };
+
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        addSale({ ...form, staffName: userName, amount: Number(form.amount) });
-        setForm({ ...form, customer: '', amount: '', notes: '' });
+
+        // Memetakan struktur multi-item menjadi satu string rangkuman yang rapi di database
+        const arrayDeskripsi = items.map(item => {
+            if (item.jenjang === 'Kustom / Lainnya') {
+                return `[Kustom: ${item.customText || 'Umum'}]`;
+            }
+            const partMapel = item.mapel === 'Kustom / Tulis Manual' ? 'Kustom' : item.mapel;
+            return `[${item.jenjang} - ${partMapel}]`;
+        });
+        const hasilGabunganProduk = arrayDeskripsi.join(', ');
+
+        const payloadClosingan = {
+            date: form.date,
+            customer: form.customer,
+            product: hasilGabunganProduk,
+            amount: Number(form.amount),
+            notes: form.notes
+        };
+
+        addSale({ ...payloadClosingan, staffName: userName });
+        if (writeActivityLog) {
+            await writeActivityLog('INPUT_CLOSING', `Staff ${userName} mencatat transaksi random/multi-item WA: ${hasilGabunganProduk} senilai Rp ${form.amount}`);
+        }
+
+        setForm({ date: new Date().toISOString().split('T')[0], customer: '', amount: '', notes: '' });
+        setItems([{ id: Date.now(), jenjang: 'SD - Kelas 1', mapel: 'Matematika', customText: '' }]);
         setTab('my_sales');
     };
 
-    const productOptions = catalogData.length > 0 ? catalogData.map(c => c.name) : ['Modul SD/MI', 'Modul SMP/MTs', 'Modul SMA/MA', 'Paket Custom'];
-
     return (
-        <div className="max-w-2xl mx-auto animate-in fade-in pt-4 md:pt-0">
-            <h1 className="text-2xl font-bold mb-6 text-gray-850">Lapor Closingan Hari Ini 🎉</h1>
-            <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl border space-y-4 shadow-sm">
-                <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-1">Tanggal Transaksi</label>
-                    <input required type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} className="w-full border px-3 py-2 rounded bg-white text-sm text-gray-850" />
+        <div className="max-w-3xl mx-auto animate-in fade-in pt-4 md:pt-0">
+            <div className="mb-4">
+                <h1 className="text-2xl font-black text-gray-850">Lapor Closingan Fleksibel (WhatsApp Arus) 🎉</h1>
+                <p className="text-xs text-gray-500 mt-1">Staf dapat menginput kombinasi kelas/mapel acak secara sekaligus sesuai kesepakatan chat WA kustomer.</p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="bg-white p-5 sm:p-6 rounded-2xl border space-y-5 shadow-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-600 mb-1">Tanggal Transaksi</label>
+                        <input required type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} className="w-full border px-3 py-2 rounded-xl bg-white text-sm text-gray-855 font-semibold" />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-600 mb-1">Nama Kustomer / Instansi Sekolah</label>
+                        <input required type="text" placeholder="Masukkan nama guru / asal sekolah" value={form.customer} onChange={e => setForm({ ...form, customer: e.target.value })} className="w-full border px-3 py-2 rounded-xl bg-white text-sm text-gray-855" />
+                    </div>
                 </div>
-                <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-1">Nama Kustomer / Instansi Sekolah</label>
-                    <input required type="text" placeholder="Masukkan nama guru / nama sekolah" value={form.customer} onChange={e => setForm({ ...form, customer: e.target.value })} className="w-full border px-3 py-2 rounded bg-white text-sm text-gray-850" />
+
+                {/* AREA SELEKSI DAFTAR ITEM DILAKUKAN SECARA MULTI-BARIS */}
+                <div className="space-y-3 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                    <div className="flex justify-between items-center border-b pb-2">
+                        <span className="text-xs font-extrabold text-blue-900 uppercase tracking-wider">Rincian Paket Modul Yang Di-deal</span>
+                        <button type="button" onClick={tambahBarisItem} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-1 px-3 rounded-lg transition flex items-center gap-1 shadow-sm">
+                            <PlusCircle size={14} /> Tambah Modul/Kelas
+                        </button>
+                    </div>
+
+                    {items.map((item, index) => (
+                        <div key={item.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2 bg-white p-3 rounded-xl border shadow-sm items-center relative animate-in zoom-in-95">
+                            <div className="sm:col-span-5 space-y-1">
+                                <label className="text-[10px] font-bold text-gray-400 block sm:hidden">Jenjang / Kelas</label>
+                                <select
+                                    value={item.jenjang}
+                                    onChange={e => ubahDataBaris(item.id, 'jenjang', e.target.value)}
+                                    className="w-full border p-1.5 rounded-lg text-xs bg-white font-medium text-gray-800"
+                                >
+                                    {jenjangOptions.map((opt, i) => <option key={i} value={opt}>{opt}</option>)}
+                                </select>
+                            </div>
+
+                            <div className="sm:col-span-5 space-y-1">
+                                <label className="text-[10px] font-bold text-gray-400 block sm:hidden">Mata Pelajaran</label>
+                                {item.jenjang === 'Kustom / Lainnya' ? (
+                                    <input
+                                        required
+                                        type="text"
+                                        placeholder="Ketik keterangan kustom..."
+                                        value={item.customText}
+                                        onChange={e => ubahDataBaris(item.id, 'customText', e.target.value)}
+                                        className="w-full border p-1.5 rounded-lg text-xs bg-white text-gray-855"
+                                    />
+                                ) : (
+                                    <select
+                                        value={item.mapel}
+                                        onChange={e => ubahDataBaris(item.id, 'mapel', e.target.value)}
+                                        className="w-full border p-1.5 rounded-lg text-xs bg-white font-medium text-gray-800"
+                                    >
+                                        {mapelOptions.map((opt, i) => <option key={i} value={opt}>{opt}</option>)}
+                                    </select>
+                                )}
+                            </div>
+
+                            <div className="sm:col-span-2 flex justify-end items-center gap-2 pt-2 sm:pt-0 border-t sm:border-0 border-dashed border-gray-200">
+                                <span className="text-[10px] font-bold text-green-600 bg-green-50 px-2 py-1 rounded">
+                                    +Rp{dapatkanRekomendasiHarga(item).toLocaleString('id-ID')}
+                                </span>
+                                {items.length > 1 && (
+                                    <button type="button" onClick={() => hapusBarisItem(item.id)} className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-lg transition" title="Hapus baris">
+                                        <Trash2 size={16} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    ))}
                 </div>
-                <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-1">Pilihan Produk Modul</label>
-                    <select value={form.product} onChange={e => setForm({ ...form, product: e.target.value })} className="w-full border px-3 py-2 rounded bg-white text-sm text-gray-850">
-                        {productOptions.map((opt, i) => <option key={i}>{opt}</option>)}
-                    </select>
+
+                {/* TOTAL HARGA ADAPUN TETAP BISA DIUBAH MANUAL APABILA ADA TAWAR MENAWAR DENGAN GURU */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-600 mb-1">Harga Deal Closing Akhir (Rp) <span className="text-blue-600 font-normal">*Bisa diedit/nego manual</span></label>
+                        <input required type="number" placeholder="Masukkan harga akhir deal kustomer" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} className="w-full border px-3 py-2.5 rounded-xl bg-white text-base text-gray-855 font-black focus:ring-2 focus:ring-blue-500 text-green-600 shadow-sm" />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-600 mb-1">Catatan Transaksi / Keterangan Tambahan</label>
+                        <textarea placeholder="Contoh: Pembayaran via Rek BRI, pengiriman ke nomor WA utama guru" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className="w-full border px-3 py-1.5 rounded-xl bg-white text-sm text-gray-855 focus:ring-2 focus:ring-blue-500" rows={2}></textarea>
+                    </div>
                 </div>
-                <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-1">Nominal Rupiah (Rp)</label>
-                    <input required type="number" placeholder="Contoh: 150000" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} className="w-full border px-3 py-2 rounded bg-white text-sm text-gray-850" />
-                </div>
-                <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-1">Catatan Tambahan (Opsional)</label>
-                    <textarea placeholder="Tulis catatan jika ada..." value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className="w-full border px-3 py-2 rounded bg-white text-sm text-gray-850"></textarea>
-                </div>
-                <button type="submit" className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded text-lg transition shadow">Simpan Closingan</button>
+
+                <button type="submit" className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl text-lg transition shadow-md flex items-center justify-center gap-2 cursor-pointer border-0">
+                    <CheckCircle size={20} /> Simpan Laporan Closingan
+                </button>
             </form>
         </div>
     );
@@ -2809,7 +3141,7 @@ function StaffCommissions({ staffName, salesData, payoutsData }) {
 
     const totalPaid = myPayouts.reduce((acc, curr) => acc + curr.amount, 0);
     const unpaidSales = mySales.filter(s => s.paymentStatus !== 'paid');
-    const unpaidCommissionAmount = unpaidSales.reduce((acc, curr) => acc + (curr.amount * 0.10), 0);
+    const unpaidCommissionAmount = unpaidSales.reduce((acc, curr) => acc + (acc.amount * 0.10), 0);
 
     const dailyUnpaidSales = {};
     unpaidSales.forEach(sale => {
@@ -2837,7 +3169,7 @@ function StaffCommissions({ staffName, salesData, payoutsData }) {
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 flex items-center justify-between">
                     <div className="space-y-2">
                         <p className="text-xs text-amber-500 font-bold uppercase tracking-wider">Komisi Belum Dibayar (Unpaid)</p>
-                        <h3 className="text-2xl font-black text-gray-850">Rp {totalUnpaid.toLocaleString('id-ID')}</h3>
+                        <h3 className="text-2xl font-black text-gray-855">Rp {totalUnpaid.toLocaleString('id-ID')}</h3>
                         <div className="text-[11px] text-gray-500 font-medium space-y-0.5">
                             <div className="flex justify-between gap-4">
                                 <span>Komisi Dasar (10%):</span>
@@ -2855,7 +3187,7 @@ function StaffCommissions({ staffName, salesData, payoutsData }) {
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 flex items-center justify-between">
                     <div className="space-y-2">
                         <p className="text-xs text-green-500 font-bold uppercase tracking-wider">Komisi Sudah Dibayar (Paid)</p>
-                        <h3 className="text-2xl font-black text-gray-850">Rp {totalPaid.toLocaleString('id-ID')}</h3>
+                        <h3 className="text-2xl font-black text-gray-855">Rp {totalPaid.toLocaleString('id-ID')}</h3>
                         <p className="text-[11px] text-gray-500 font-medium flex items-center gap-1">
                             <span className="bg-green-50 text-green-700 px-2 py-0.5 rounded-full font-bold">Lunas</span>
                             <span>Telah ditransfer oleh Owner</span>
@@ -2954,7 +3286,7 @@ function StaffCommissions({ staffName, salesData, payoutsData }) {
                                 unpaidSales.map((sale, i) => (
                                     <tr key={i} className="border-b hover:bg-gray-50/50">
                                         <td className="px-4 py-4 text-gray-600">{sale.date}</td>
-                                        <td className="px-4 py-4 font-bold text-gray-850">{sale.customer}</td>
+                                        <td className="px-4 py-4 font-bold text-gray-855">{sale.customer}</td>
                                         <td className="px-4 py-4"><span className="bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-full text-xs font-bold">{sale.product}</span></td>
                                         <td className="px-4 py-4 text-right font-semibold">Rp {sale.amount.toLocaleString('id-ID')}</td>
                                         <td className="px-4 py-4 text-center font-black text-amber-600">Rp {(sale.amount * 0.10).toLocaleString('id-ID')}</td>
@@ -2995,13 +3327,13 @@ function StaffCommissions({ staffName, salesData, payoutsData }) {
         </div>
     );
 }
+
 // ==================== DAFTAR TAMBAHAN KOMPONEN BARU SUB-SISTEM ====================
 
 export function StaffResourceHub({ db, appId, user, showAlert }) {
     const [drives, setDrives] = React.useState([]);
     const [selectedDrive, setSelectedDrive] = React.useState(null);
 
-    // Mengambil daftar folder drive yang didaftarkan Admin
     React.useEffect(() => {
         if (!db) return;
         const driveRef = collection(db, 'artifacts', appId, 'public', 'data', 'driveFilesData');
@@ -3009,13 +3341,12 @@ export function StaffResourceHub({ db, appId, user, showAlert }) {
             const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setDrives(fetched);
             if (fetched.length > 0 && !selectedDrive) {
-                setSelectedDrive(fetched[0]); // Default buka folder pertama
+                setSelectedDrive(fetched[0]);
             }
         });
         return () => unsubscribe();
     }, [db]);
 
-    // Fungsi mengubah link Google Drive biasa menjadi mode Embed Kotak Interaktif
     const dapatkanLinkEmbed = (url) => {
         if (!url) return "";
         let folderId = "";
@@ -3029,7 +3360,6 @@ export function StaffResourceHub({ db, appId, user, showAlert }) {
         return `https://drive.google.com/embeddedfolderview?id=${folderId}#list`;
     };
 
-    // Otomatis mencatat LOG ke admin begitu sales memilih/membuka folder tersebut
     const handlePilihFolder = async (drive) => {
         setSelectedDrive(drive);
         try {
@@ -3056,7 +3386,6 @@ export function StaffResourceHub({ db, appId, user, showAlert }) {
                     <p className="text-gray-500 text-xs">Gunakan kolom pencarian di dalam kotak Google Drive di bawah untuk mencari file.</p>
                 </div>
 
-                {/* Tombol Pilihan Folder jika Admin memasukkan lebih dari 1 link */}
                 <div className="flex items-center gap-2 w-full md:w-auto">
                     <span className="text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Pilih Kategori:</span>
                     <select
@@ -3073,7 +3402,6 @@ export function StaffResourceHub({ db, appId, user, showAlert }) {
                 </div>
             </div>
 
-            {/* KOTAK EMBED GOOGLE DRIVE UTAMA */}
             <div className="flex-grow w-full bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden relative min-h-[450px]">
                 {selectedDrive ? (
                     <iframe
@@ -3092,6 +3420,22 @@ export function StaffResourceHub({ db, appId, user, showAlert }) {
                     </div>
                 )}
             </div>
+
+            {selectedDrive && (
+                <div className="mt-3 flex flex-col sm:flex-row items-center justify-between bg-blue-50 p-3.5 rounded-xl border border-blue-200 gap-2 animate-in fade-in">
+                    <span className="text-xs text-blue-800 font-medium flex items-center gap-1.5">
+                        ⚠️ Mengalami kendala memuat folder di atas? Anda dapat membukanya langsung di Google Drive secara aman.
+                    </span>
+                    <a
+                        href={selectedDrive.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-xl text-xs transition inline-flex items-center gap-1.5 whitespace-nowrap shadow-sm"
+                    >
+                        Buka Folder di Tab Baru &rarr;
+                    </a>
+                </div>
+            )}
         </div>
     );
 }
@@ -3201,6 +3545,8 @@ export function ManageAdminDrive({ db, appId, showAlert, showConfirm }) {
 
 export function ManageAdminLogs({ db, appId }) {
     const [logs, setLogs] = React.useState([]);
+    const [currentPage, setCurrentPage] = React.useState(1);
+    const itemsPerPage = 25;
 
     React.useEffect(() => {
         if (!db) return;
@@ -3212,6 +3558,9 @@ export function ManageAdminLogs({ db, appId }) {
         }, (err) => console.error(err));
         return () => unsubscribe();
     }, [db]);
+
+    const totalPages = Math.ceil(logs.length / itemsPerPage);
+    const paginatedLogs = logs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
     return (
         <div className="space-y-6 animate-in fade-in">
@@ -3234,7 +3583,7 @@ export function ManageAdminLogs({ db, appId }) {
                         </tr>
                     </thead>
                     <tbody className="font-medium">
-                        {logs.map((log) => (
+                        {paginatedLogs.map((log) => (
                             <tr key={log.id} className="border-b hover:bg-gray-50/70 transition">
                                 <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500 font-mono">
                                     {new Date(log.timestamp).toLocaleString('id-ID')}
@@ -3252,7 +3601,7 @@ export function ManageAdminLogs({ db, appId }) {
                                 </td>
                             </tr>
                         ))}
-                        {logs.length === 0 && (
+                        {paginatedLogs.length === 0 && (
                             <tr>
                                 <td colSpan={4} className="text-center py-10 text-gray-400 font-medium">Belum ada riwayat aktivitas yang tercatat.</td>
                             </tr>
@@ -3260,6 +3609,7 @@ export function ManageAdminLogs({ db, appId }) {
                     </tbody>
                 </table>
             </div>
+            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
         </div>
     );
 }
@@ -3315,11 +3665,17 @@ export function StaffSalesLedger({ mySalesData }) {
 }
 
 export function ManageLeadsDashboard({ leadsData, showAlert }) {
+    const [currentPage, setCurrentPage] = React.useState(1);
+    const itemsPerPage = 25;
+
     const triggerWhatsApp = (lead) => {
         const textMessage = `Halo Bpk/Ibu ${lead.name}, saya melihat Anda mengunduh contoh Perangkat Administrasi Modul Deeplearning di Sobat Guru Digital. Apakah ada materi jenjang tertentu yang sedang dibutuhkan saat ini?`;
         window.open(`https://api.whatsapp.com/send?phone=${lead.phone.replace(/^0/, '+62')}&text=${encodeURIComponent(textMessage)}`, '_blank');
         showAlert(`Menghubungi ${lead.name} via WhatsApp`, "CRM Sukses", "success");
     };
+
+    const totalPages = Math.ceil(leadsData.length / itemsPerPage);
+    const paginatedLeads = leadsData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
     return (
         <div className="space-y-6 animate-in fade-in">
@@ -3339,7 +3695,7 @@ export function ManageLeadsDashboard({ leadsData, showAlert }) {
                             </tr>
                         </thead>
                         <tbody>
-                            {leadsData.map((lead) => (
+                            {paginatedLeads.map((lead) => (
                                 <tr key={lead.id} className="border-b hover:bg-gray-50/50">
                                     <td className="px-6 py-4 text-xs whitespace-nowrap">{lead.date?.slice(0, 10) || '-'}</td>
                                     <td className="px-6 py-4 font-bold text-gray-900">{lead.name}</td>
@@ -3351,7 +3707,7 @@ export function ManageLeadsDashboard({ leadsData, showAlert }) {
                                     </td>
                                 </tr>
                             ))}
-                            {leadsData.length === 0 && (
+                            {paginatedLeads.length === 0 && (
                                 <tr>
                                     <td colSpan={4} className="text-center py-8 text-gray-400">Belum ada data leads yang terekam masuk.</td>
                                 </tr>
@@ -3360,43 +3716,190 @@ export function ManageLeadsDashboard({ leadsData, showAlert }) {
                     </table>
                 </div>
             </div>
+            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
         </div>
     );
 }
 
 export function ManageBrandSettings({ appSettings, db, appId, showAlert }) {
     const [faviconUrl, setFaviconUrl] = React.useState(appSettings.favicon || '');
+    const [priceSD, setPriceSD] = React.useState(appSettings.priceSD || 35000);
+    const [priceSMP, setPriceSMP] = React.useState(appSettings.priceSMP || 45000);
+    const [priceSMA, setPriceSMA] = React.useState(appSettings.priceSMA || 55000);
+    const [priceLengkap, setPriceLengkap] = React.useState(appSettings.priceLengkap || 150000);
+    const [priceKustom, setPriceKustom] = React.useState(appSettings.priceKustom || 50000);
+    const [mapelList, setMapelList] = React.useState(appSettings.mapelList || 'Matematika, Bahasa Indonesia, Bahasa Inggris, IPA, IPS, Pancasila / PKn, PAI (Agama), PJOK, Seni Budaya, Tematik, Semua Mapel (Paket)');
+
+    React.useEffect(() => {
+        if (appSettings) {
+            setFaviconUrl(appSettings.favicon || '');
+            setPriceSD(appSettings.priceSD || 35000);
+            setPriceSMP(appSettings.priceSMP || 45000);
+            setPriceSMA(appSettings.priceSMA || 55000);
+            setPriceLengkap(appSettings.priceLengkap || 150000);
+            setPriceKustom(appSettings.priceKustom || 50000);
+            setMapelList(appSettings.mapelList || 'Matematika, Bahasa Indonesia, Bahasa Inggris, IPA, IPS, Pancasila / PKn, PAI (Agama), PJOK, Seni Budaya, Tematik, Semua Mapel (Paket)');
+        }
+    }, [appSettings]);
 
     const handleSaveConfig = async (e) => {
         e.preventDefault();
         try {
             const settingsCollection = collection(db, 'artifacts', appId, 'public', 'data', 'settingsData');
-            await setDoc(doc(settingsCollection, 'global_config'), { favicon: faviconUrl }, { merge: true });
-            showAlert("Favicon aplikasi berhasil diperbarui secara real-time!", "Sukses", "success");
+            await setDoc(doc(settingsCollection, 'global_config'), {
+                favicon: faviconUrl,
+                priceSD: Number(priceSD),
+                priceSMP: Number(priceSMP),
+                priceSMA: Number(priceSMA),
+                priceLengkap: Number(priceLengkap),
+                priceKustom: Number(priceKustom),
+                mapelList: mapelList
+            }, { merge: true });
+            showAlert("Seluruh konfigurasi harga & daftar mata pelajaran berhasil disimpan!", "Sukses", "success");
         } catch (error) {
-            showAlert("Gagal mengupdate konfigurasi brand!", "Error", "error");
+            showAlert("Gagal mengupdate konfigurasi!", "Error", "error");
         }
     };
 
     return (
-        <div className="bg-white p-6 rounded-2xl border shadow-sm max-w-xl animate-in fade-in">
-            <div className="border-b pb-3 mb-4">
-                <h3 className="font-extrabold text-blue-950 text-lg">Pengaturan Branding Website</h3>
-                <p className="text-gray-500 text-xs">Ubah gambar ikon tab browser (Favicon) aplikasi Sobat Guru Digital tanpa bongkar server.</p>
+        <div className="bg-white p-6 rounded-2xl border shadow-sm max-w-2xl animate-in fade-in space-y-6">
+            <div className="border-b pb-3">
+                <h3 className="font-extrabold text-blue-950 text-lg">Pengaturan Aplikasi & Atur Tarif</h3>
+                <p className="text-gray-500 text-xs">Kelola branding, harga otomatis, serta daftar pilihan mata pelajaran form staf secara real-time.</p>
             </div>
-            <form onSubmit={handleSaveConfig} className="space-y-4">
-                <div className="space-y-1">
-                    <label className="block text-xs font-bold text-gray-700">Link URL Gambar Ikon (.ico / .png)</label>
-                    <input required type="url" value={faviconUrl} onChange={(e) => setFaviconUrl(e.target.value)} placeholder="https://linkwebsite.com/ikon.png" className="w-full border px-4 py-2.5 rounded-xl text-xs font-mono text-blue-700 bg-gray-50 focus:ring-2 focus:ring-blue-600 focus:outline-none" />
+
+            <form onSubmit={handleSaveConfig} className="space-y-5">
+                {/* Branding */}
+                <div className="space-y-2">
+                    <h4 className="text-xs font-bold text-blue-900 uppercase tracking-wider">Aset & Branding</h4>
+                    <div className="space-y-1">
+                        <label className="block text-xs font-bold text-gray-700">Link URL Gambar Ikon Browser (.ico / .png)</label>
+                        <input required type="url" value={faviconUrl} onChange={(e) => setFaviconUrl(e.target.value)} placeholder="https://linkwebsite.com/ikon.png" className="w-full border px-4 py-2 rounded-xl text-xs font-mono text-blue-700 bg-gray-50 focus:ring-2 focus:ring-blue-600 focus:outline-none" />
+                    </div>
                 </div>
-                <div className="flex items-center gap-3 bg-amber-50 p-3 rounded-xl border border-amber-200">
-                    <img src={faviconUrl || 'https://react.dev/favicon.ico'} alt="Favicon Preview" className="w-8 h-8 rounded border bg-white object-contain" onError={(e) => { e.target.src = 'https://react.dev/favicon.ico'; }} />
-                    <p className="text-[10px] text-amber-800 font-medium">Kotak pratinjau aset logo brand Anda di atas. Pastikan tautan url gambar valid.</p>
+
+                <hr className="border-gray-200" />
+
+                {/* Atur Penyesuai Harga */}
+                <div className="space-y-3">
+                    <h4 className="text-xs font-bold text-blue-900 uppercase tracking-wider">Tarif Dasar Otomatis Form Staf (Rupiah)</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">Harga per Mapel SD</label>
+                            <input required type="number" value={priceSD} onChange={(e) => setPriceSD(e.target.value)} className="w-full border px-3 py-2 rounded-lg text-sm bg-gray-50 text-gray-800 font-bold" />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">Harga per Mapel SMP</label>
+                            <input required type="number" value={priceSMP} onChange={(e) => setPriceSMP(e.target.value)} className="w-full border px-3 py-2 rounded-lg text-sm bg-gray-50 text-gray-800 font-bold" />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">Harga per Mapel SMA</label>
+                            <input required type="number" value={priceSMA} onChange={(e) => setPriceSMA(e.target.value)} className="w-full border px-3 py-2 rounded-lg text-sm bg-gray-50 text-gray-800 font-bold" />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">Harga Paket Lengkap (SD/SMP/SMA)</label>
+                            <input required type="number" value={priceLengkap} onChange={(e) => setPriceLengkap(e.target.value)} className="w-full border px-3 py-2 rounded-lg text-sm bg-gray-50 text-gray-800 font-bold" />
+                        </div>
+                        <div className="sm:col-span-2">
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">Harga Opsi Kustom / Lainnya</label>
+                            <input required type="number" value={priceKustom} onChange={(e) => setPriceKustom(e.target.value)} className="w-full border px-3 py-2 rounded-lg text-sm bg-gray-50 text-gray-800 font-bold" />
+                        </div>
+                    </div>
                 </div>
-                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs shadow transition">
-                    Simpan Perubahan Aset Favicon
+
+                <hr className="border-gray-200" />
+
+                {/* BARU: Atur Daftar Mapel Dropdown */}
+                <div className="space-y-2">
+                    <h4 className="text-xs font-bold text-blue-900 uppercase tracking-wider">Kelola Pilihan Mata Pelajaran (Mapel)</h4>
+                    <div className="space-y-1">
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">Daftar Mata Pelajaran *(Pisahkan dengan tanda koma)</label>
+                        <textarea
+                            required
+                            rows={3}
+                            value={mapelList}
+                            onChange={(e) => setMapelList(e.target.value)}
+                            placeholder="Contoh: Matematika, Bahasa Indonesia, Sejarah, Geografi, Fisika, Kimia"
+                            className="w-full border px-3 py-2 rounded-xl text-xs bg-gray-50 text-gray-800 font-medium focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                        />
+                        <p className="text-[10px] text-gray-400 font-medium mt-1">Tip: Anda bisa menambah mapel baru seperti "Sejarah, Geografi, Antropologi" di atas. Cukup beri tanda koma `,` sebagai pemisah antar mapel.</p>
+                    </div>
+                </div>
+
+                <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 text-[10px] text-blue-800 font-medium">
+                    Setiap perubahan mapel dan harga yang Anda simpan di panel ini akan langsung merubah tampilan aplikasi staf Anda detik itu juga secara real-time tanpa perlu restart server.
+                </div>
+
+                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-sm shadow transition cursor-pointer border-0">
+                    Simpan Perubahan Aplikasi & Mapel
                 </button>
             </form>
+        </div>
+    );
+}
+// ---------------------- REUSABLE UI COMPONENTS ----------------------
+
+function Pagination({ currentPage, totalPages, onPageChange }) {
+    if (totalPages <= 1) return null;
+    const pages = [];
+    for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+    }
+    return (
+        <div className="flex justify-between items-center px-4 py-3 bg-white border-t border-gray-150 sm:px-6">
+            <div className="flex-1 flex justify-between sm:hidden">
+                <button
+                    disabled={currentPage === 1}
+                    onClick={() => onPageChange(currentPage - 1)}
+                    className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-xs font-bold rounded-lg text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                    Sebelumnya
+                </button>
+                <button
+                    disabled={currentPage === totalPages}
+                    onClick={() => onPageChange(currentPage + 1)}
+                    className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-xs font-bold rounded-lg text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                    Selanjutnya
+                </button>
+            </div>
+            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                <div>
+                    <p className="text-xs text-gray-500 font-medium">
+                        Halaman <span className="font-bold text-gray-800">{currentPage}</span> dari <span className="font-bold text-gray-800">{totalPages}</span>
+                    </p>
+                </div>
+                <div>
+                    <nav className="relative z-0 inline-flex rounded-lg shadow-sm -space-x-px" aria-label="Pagination">
+                        <button
+                            disabled={currentPage === 1}
+                            onClick={() => onPageChange(currentPage - 1)}
+                            className="relative inline-flex items-center px-2 py-2 rounded-l-lg border border-gray-300 bg-white text-xs font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            &larr;
+                        </button>
+                        {pages.map((p) => (
+                            <button
+                                key={p}
+                                onClick={() => onPageChange(p)}
+                                className={`relative inline-flex items-center px-3.5 py-2 border text-xs font-bold transition-all ${p === currentPage
+                                    ? 'z-10 bg-blue-600 border-blue-600 text-white'
+                                    : 'bg-white border-gray-300 text-gray-550 hover:bg-gray-50'
+                                    }`}
+                            >
+                                {p}
+                            </button>
+                        ))}
+                        <button
+                            disabled={currentPage === totalPages}
+                            onClick={() => onPageChange(currentPage + 1)}
+                            className="relative inline-flex items-center px-2 py-2 rounded-r-lg border border-gray-300 bg-white text-xs font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            &rarr;
+                        </button>
+                    </nav>
+                </div>
+            </div>
         </div>
     );
 }
