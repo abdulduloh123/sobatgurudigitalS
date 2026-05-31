@@ -150,7 +150,7 @@ export default function App() {
                     link.rel = 'icon';
                     document.head.appendChild(link);
                 }
-                link.href = data.favicon || 'https://react.dev/favicon.ico';
+                link.href = data.favicon || 'https://raw.githubusercontent.com/abdulduloh123/sobatgurudigital/refs/heads/main/apple-icon-precomposed.ico';
             }
         }, (error) => console.error("Settings error:", error));
         return () => {
@@ -524,8 +524,8 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
 
     const faqs = [
         { q: "Apakah file modul ini bisa diedit?", a: "Ya, 100% bisa diedit! Format file yang kami berikan adalah Ms. Word (DOCX) sehingga Bapak/Ibu tinggal mengganti nama sekolah dan identitas guru." },
-        { q: "Apakah sudah sesuai CP 046 dan KMA terbaru?", a: "Sangat sesuai. Modul kami selalu diupdate mengikuti rilis kurikulum dari Kemdikbudristek (CP 046) dan Kemenag (KMA 3302)." },
-        { q: "Bagaimana cara pengiriman file-nya?", a: "Setelah konfirmasi pembayaran, link Google Drive berisi seluruh folder perangkat ajar akan langsung dikirimkan ke WhatsApp Bapak/Ibu dalam hitungan menit." }
+        { q: "Apakah sudah sesuai CP 046 dan KMA terbaru?", a: "Sangat sesuai. Modul kami selalu diupdate mengikuti rilis kurikulum dari Kemdikbudristek (CP 046) dan Kemenag (KMA 1503)." },
+        { q: "Bagaimana cara pengiriman file-nya?", a: "Setelah konfirmasi pembayaran, File berisi modul ajar dan perangkat ajar akan langsung dikirimkan ke WhatsApp Bapak/Ibu dalam hitungan menit." }
     ];
 
     return (
@@ -560,7 +560,7 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
                         Modul Ajar <span className="gold-text">DEEPLEARNING</span><br />Terlengkap & Terbaru
                     </h1>
                     <p className="text-blue-100 text-lg mb-8 drop-shadow-md">
-                        Untuk Jenjang SD, SMP, SMA & Madrasah. Sesuai CP Terbaru (046 & KMA 3302).
+                        Untuk Jenjang SD, SMP, SMA & Madrasah. Sesuai CP Terbaru (046 & KMA 1503).
                     </p>
                     <div className="flex justify-center items-center gap-2 mb-8 bg-white/10 p-3 rounded-lg backdrop-blur-sm inline-flex border border-white/20">
                         <div className="flex text-yellow-400">
@@ -590,7 +590,7 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
                             <li>• Bingung menyusun modul sesuai CP 046?</li>
                             <li>• Takut tidak lulus validasi Supervisi dan UKIN PPG?</li>
                             <li>• Waktu habis hanya untuk administrasi?</li>
-                            <li>• Kesulitan mencari referensi KMA 3302?</li>
+                            <li>• Kesulitan mencari referensi KMA 1503?</li>
                         </ul>
                     </div>
                     <div className="bg-white p-6 rounded-2xl shadow-lg border-l-4 border-green-500">
@@ -611,11 +611,11 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
                         {[
                             { icon: <FileText size={24} />, title: 'Paket Lengkap', desc: 'Termasuk Prota, Prosem, LKPD, ATP, dan Modul Ajar terstruktur.' },
-                            { icon: <Book size={24} />, title: 'CP & KMA Terbaru', desc: 'Mengacu pada CP 046 dan KMA 3302. Relevan untuk PPG 2025.' },
+                            { icon: <Book size={24} />, title: 'CP & KMA Terbaru', desc: 'Mengacu pada CP 046 dan KMA 1503. Relevan untuk PPG 2026.' },
                             { icon: <Heart size={24} />, title: 'Kurikulum Berbasis Cinta', desc: 'Pendekatan humanis yang memudahkan siswa memahami materi.' },
                             { icon: <Edit size={24} />, title: 'Bisa Request Materi', desc: 'Sesuaikan dengan kebutuhan spesifik di sekolah/madrasah Anda.' },
                             { icon: <RefreshCw size={24} />, title: 'Bisa Revisi', desc: 'Kami menjamin kualitas. Ada harga, ada kualitas terbaik.' },
-                            { icon: <GraduationCap size={24} />, title: 'Semua Jenjang', desc: 'Tersedia untuk SD, SMP, SMA dan Madrasah (MI, MTs, MA).' }
+                            { icon: <GraduationCap size={24} />, title: 'Semua Jenjang', desc: 'Tersedia untuk TK, SD, SMP, SMA /SMK dan Madrasah (RA, MI, MTs, MA). serta SLB' }
                         ].map((item, idx) => (
                             <div key={idx} className="bg-white p-6 rounded-xl shadow-md hover:shadow-xl transition">
                                 <div className="w-14 h-14 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
