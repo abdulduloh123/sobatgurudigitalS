@@ -1148,7 +1148,6 @@ function Dashboard({
                     {user.role === 'admin' && activeTab === 'manage_staff' && <ManageStaff usersData={usersData} addStaffUser={addStaffUser} deleteStaffUser={deleteStaffUser} showConfirm={showConfirm} />}
                     {activeTab === 'manage_leads' && (
     <ManageLeadsDashboard leadsData={leadsData} showAlert={showAlert} db={db} appId={appId} />
-)}
                     )}
                     {user.role === 'admin' && activeTab === 'brand_settings' && (
                         <ManageBrandSettings appSettings={appSettings} db={db} appId={appId} showAlert={showAlert} />
@@ -3734,7 +3733,6 @@ export function StaffSalesLedger({ mySalesData }) {
     );
 }
 
-export function ManageLeadsDashboard({ leadsData, showAlert }) {
     export function ManageLeadsDashboard({ leadsData, showAlert, db, appId }) {
     const [currentPage, setCurrentPage] = React.useState(1);
     const itemsPerPage = 25;
@@ -4004,4 +4002,3 @@ function Pagination({ currentPage, totalPages, onPageChange }) {
             </div>
         </div>
     );
-}
