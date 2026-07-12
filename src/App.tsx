@@ -41,6 +41,15 @@ export default function App() {
     const [payoutsData, setPayoutsData] = useState([]);
     const [leadsData, setLeadsData] = useState([]);
     const [appSettings, setAppSettings] = useState({ favicon: 'https://react.dev/favicon.ico' });
+    // Kode Baru: Menghitung jumlah leads yang statusnya masih kosong / belum di-chat
+const [unreadLeadsCount, setUnreadCount] = useState(0);
+
+useEffect(() => {
+    if (leadsData && leadsData.length > 0) {
+        const belumDichat = leadsData.filter(lead => !lead.status || lead.status === 'belum_dichat').length;
+        setUnreadCount(belumDichat);
+    }
+}, [leadsData]);
     // Custom UI Alert & Confirm States (Solusi Iframe CSP)
     const [alertConfig, setAlertConfig] = useState({ isOpen: false, title: '', message: '', type: 'info' });
     const [confirmConfig, setConfirmConfig] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
@@ -1053,15 +1062,37 @@ function Dashboard({
                             <SidebarBtn icon={<FileText />} label="Pratinjau Landing" active={activeTab === 'manage_previews'} onClick={() => { setActiveTab('manage_previews'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Package />} label="Katalog Landing" active={activeTab === 'manage_catalog'} onClick={() => { setActiveTab('manage_catalog'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Users />} label="Manajemen Staff" active={activeTab === 'manage_staff'} onClick={() => { setActiveTab('manage_staff'); setIsSidebarOpen(false); }} />
-                            <SidebarBtn icon={<MessageCircle />} label="Pusat Leads (CRM)" active={activeTab === 'manage_leads'} onClick={() => { setActiveTab('manage_leads'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn 
+    icon={
+        <div className="relative">
+            <MessageCircle />
+            {unreadLeadsCount > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-ping"></span>}
+        </div>
+    } 
+    label={`Pusat Leads (CRM) ${unreadLeadsCount > 0 ? `(${unreadLeadsCount})` : ''}`} 
+    active={activeTab === 'manage_leads'} 
+    onClick={() => { setActiveTab('manage_leads'); setIsSidebarOpen(false); }} 
+/>
                             <SidebarBtn icon={<Lock />} label="Favicon & Brand" active={activeTab === 'brand_settings'} onClick={() => { setActiveTab('brand_settings'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Package />} label="Atur File Drive" active={activeTab === 'manage_admin_drive'} onClick={() => { setActiveTab('manage_admin_drive'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Clock />} label="Log Akses Drive" active={activeTab === 'manage_admin_logs'} onClick={() => { setActiveTab('manage_admin_logs'); setIsSidebarOpen(false); }} />
                         </>
                     )}
-                    {user.role === 'staff' && (
-                        <>
-                            <SidebarBtn icon={<PlusCircle />} label="Input Closingan" active={activeTab === 'input'} onClick={() => { setActiveTab('input'); setIsSidebarOpen(false); }} />
+                  {user.role === 'staff' && (
+    <>
+        {/* Tombol Leads CRM Baru Untuk Sales dengan Indikator Angka Notifikasi */}
+        <SidebarBtn 
+            icon={
+                <div className="relative">
+                    <MessageCircle />
+                    {unreadLeadsCount > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-ping"></span>}
+                </div>
+            } 
+            label={`Pusat Leads CRM ${unreadLeadsCount > 0 ? `(${unreadLeadsCount})` : ''}`} 
+            active={activeTab === 'manage_leads'} 
+            onClick={() => { setActiveTab('manage_leads'); setIsSidebarOpen(false); }} 
+        />
+        <SidebarBtn icon={<PlusCircle />} label="Input Closingan" active={activeTab === 'input'} onClick={() => { setActiveTab('input'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<ShoppingBag />} label="Riwayat Penjualan" active={activeTab === 'my_sales'} onClick={() => { setActiveTab('my_sales'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Award />} label="Laporan Komisi Saya" active={activeTab === 'my_commissions'} onClick={() => { setActiveTab('my_commissions'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Book />} label="Unduh Sampel Perangkat" active={activeTab === 'resource_hub'} onClick={() => { setActiveTab('resource_hub'); setIsSidebarOpen(false); }} />
@@ -1115,8 +1146,9 @@ function Dashboard({
                     )}
                     {user.role === 'admin' && activeTab === 'manage_catalog' && <ManageCatalog catalogData={catalogData} addProduct={addProduct} updateProduct={updateProduct} deleteProduct={deleteProduct} showConfirm={showConfirm} db={db} appId={appId} writeActivityLog={writeActivityLog} showAlert={showAlert} />}
                     {user.role === 'admin' && activeTab === 'manage_staff' && <ManageStaff usersData={usersData} addStaffUser={addStaffUser} deleteStaffUser={deleteStaffUser} showConfirm={showConfirm} />}
-                    {user.role === 'admin' && activeTab === 'manage_leads' && (
-                        <ManageLeadsDashboard leadsData={leadsData} showAlert={showAlert} />
+                    {activeTab === 'manage_leads' && (
+    <ManageLeadsDashboard leadsData={leadsData} showAlert={showAlert} db={db} appId={appId} />
+)}
                     )}
                     {user.role === 'admin' && activeTab === 'brand_settings' && (
                         <ManageBrandSettings appSettings={appSettings} db={db} appId={appId} showAlert={showAlert} />
@@ -3703,6 +3735,7 @@ export function StaffSalesLedger({ mySalesData }) {
 }
 
 export function ManageLeadsDashboard({ leadsData, showAlert }) {
+    export function ManageLeadsDashboard({ leadsData, showAlert, db, appId }) {
     const [currentPage, setCurrentPage] = React.useState(1);
     const itemsPerPage = 25;
 
@@ -3710,6 +3743,18 @@ export function ManageLeadsDashboard({ leadsData, showAlert }) {
         const textMessage = `Halo Bpk/Ibu ${lead.name}, saya melihat Anda mengunduh contoh Perangkat Administrasi Modul Deeplearning di Sobat Guru Digital. Apakah ada materi jenjang tertentu yang sedang dibutuhkan saat ini?`;
         window.open(`https://api.whatsapp.com/send?phone=${lead.phone.replace(/^0/, '+62')}&text=${encodeURIComponent(textMessage)}`, '_blank');
         showAlert(`Menghubungi ${lead.name} via WhatsApp`, "CRM Sukses", "success");
+    };
+
+    // Fungsi baru untuk memperbarui status leads langsung ke Cloud database Firebase
+    const updateLeadStatus = async (leadId, newStatus) => {
+        try {
+            const leadDocRef = React.doc(db, 'artifacts', appId, 'public', 'data', 'leadsData', leadId);
+            await React.updateDoc(leadDocRef, { status: newStatus });
+            showAlert(`Status leads berhasil diubah!`, "Sukses", "success");
+        } catch (error) {
+            console.error(error);
+            showAlert("Gagal menyimpan perubahan status ke database", "Error", "error");
+        }
     };
 
     const totalPages = Math.ceil(leadsData.length / itemsPerPage);
@@ -3729,6 +3774,7 @@ export function ManageLeadsDashboard({ leadsData, showAlert }) {
                                 <th className="px-6 py-3">Tanggal Masuk</th>
                                 <th className="px-6 py-3">Nama Pendidik</th>
                                 <th className="px-6 py-3">Nomor WhatsApp</th>
+                                <th className="px-6 py-3 text-center">Status Tindakan</th>
                                 <th className="px-6 py-3 text-center">Aksi Hubungi</th>
                             </tr>
                         </thead>
@@ -3739,6 +3785,24 @@ export function ManageLeadsDashboard({ leadsData, showAlert }) {
                                     <td className="px-6 py-4 font-bold text-gray-900">{lead.name}</td>
                                     <td className="px-6 py-4 font-mono text-gray-650 text-xs">{lead.phone}</td>
                                     <td className="px-6 py-4 text-center">
+                                        {/* Dropdown Pilihan Status Baru dengan Warna Dinamis */}
+                                        <select
+                                            value={lead.status || 'belum_dichat'}
+                                            onChange={(e) => updateLeadStatus(lead.id, e.target.value)}
+                                            className={`px-3 py-1.5 rounded-full text-xs font-bold border focus:outline-none focus:ring-1 cursor-pointer ${
+                                                lead.status === 'konversi' ? 'bg-green-100 text-green-700 border-green-300' :
+                                                lead.status === 'sudah_dichat' ? 'bg-blue-100 text-blue-700 border-blue-300' :
+                                                lead.status === 'gagal' ? 'bg-red-100 text-red-700 border-red-300' :
+                                                'bg-amber-100 text-amber-700 border-amber-300'
+                                            }`}
+                                        >
+                                            <option value="belum_dichat">⏳ Belum di-chat</option>
+                                            <option value="sudah_dichat">💬 Sudah di-chat</option>
+                                            <option value="konversi">🎉 Konversi (Deal)</option>
+                                            <option value="gagal">❌ Gagal / Tolak</option>
+                                        </select>
+                                     </td>
+                                    <td className="px-6 py-4 text-center">
                                         <button onClick={() => triggerWhatsApp(lead)} className="bg-green-500 hover:bg-green-600 text-white font-bold py-1.5 px-4 rounded-xl text-xs transition">
                                             Chat WhatsApp
                                         </button>
@@ -3747,8 +3811,8 @@ export function ManageLeadsDashboard({ leadsData, showAlert }) {
                             ))}
                             {paginatedLeads.length === 0 && (
                                 <tr>
-                                    <td colSpan={4} className="text-center py-8 text-gray-400">Belum ada data leads yang terekam masuk.</td>
-                                </tr>
+                                    <td colSpan={5} className="text-center py-8 text-gray-400">Belum ada data leads yang terekam masuk.</td>
+                                 </tr>
                             )}
                         </tbody>
                     </table>
