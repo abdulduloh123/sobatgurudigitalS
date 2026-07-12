@@ -3732,7 +3732,6 @@ export function StaffSalesLedger({ mySalesData }) {
         </div>
     );
 }
-
     export function ManageLeadsDashboard({ leadsData, showAlert, db, appId }) {
     const [currentPage, setCurrentPage] = React.useState(1);
     const itemsPerPage = 25;
@@ -3820,7 +3819,6 @@ export function StaffSalesLedger({ mySalesData }) {
         </div>
     );
 }
-
 export function ManageBrandSettings({ appSettings, db, appId, showAlert }) {
     const [faviconUrl, setFaviconUrl] = React.useState(appSettings.favicon || '');
     const [priceSD, setPriceSD] = React.useState(appSettings.priceSD || 35000);
@@ -4002,3 +4000,4 @@ function Pagination({ currentPage, totalPages, onPageChange }) {
             </div>
         </div>
     );
+}
