@@ -387,6 +387,7 @@ useEffect(() => {
                     db={db}
                     appId={appId}
                     writeActivityLog={writeActivityLog}
+                    unreadLeadsCount={unreadLeadsCount}
                 />
             )}
 
@@ -1014,7 +1015,7 @@ function Dashboard({
     usersData, addStaffUser, deleteStaffUser, catalogData,
     addProduct, updateProduct, deleteProduct, expensesData,
     addExpense, updateExpense, deleteExpense, previewsData,
-    payoutsData, updatePreview, payStaffCommission, showAlert, showConfirm, leadsData, appSettings, db, appId, writeActivityLog
+    payoutsData, updatePreview, payStaffCommission, showAlert, showConfirm, leadsData, appSettings, db, appId, writeActivityLog, unreadLeadsCount
 }) {
     const [activeTab, setActiveTab] = useState(user.role === 'staff' ? 'input' : 'overview');
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
