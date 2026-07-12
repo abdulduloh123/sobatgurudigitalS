@@ -3746,8 +3746,8 @@ export function StaffSalesLedger({ mySalesData }) {
     // Fungsi baru untuk memperbarui status leads langsung ke Cloud database Firebase
     const updateLeadStatus = async (leadId, newStatus) => {
         try {
-            const leadDocRef = React.doc(db, 'artifacts', appId, 'public', 'data', 'leadsData', leadId);
-            await React.updateDoc(leadDocRef, { status: newStatus });
+            const leadDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'leadsData', leadId);
+            await updateDoc(leadDocRef, { status: newStatus });
             showAlert(`Status leads berhasil diubah!`, "Sukses", "success");
         } catch (error) {
             console.error(error);
