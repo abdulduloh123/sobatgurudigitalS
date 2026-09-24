@@ -11,6 +11,7 @@ import {
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, setDoc, writeBatch } from 'firebase/firestore';
+import { useMetaTracking, MetaLandingPage, MetaPixelSettings, TrafficDashboard, ManageLeadsDashboard as ManageLeadsMeta, createTrackedLead, trackWhatsApp } from './metaSuite';
 
 // 1. Inisialisasi Cloud Database Resmi Sobat Guru Digital
 const firebaseConfig = {
@@ -43,6 +44,11 @@ export default function App() {
     const [appSettings, setAppSettings] = useState({ favicon: 'https://react.dev/favicon.ico' });
     // Kode Baru: Menghitung jumlah leads yang statusnya masih kosong / belum di-chat
 const [unreadLeadsCount, setUnreadCount] = useState(0);
+    // ---- META: tracking pixel + landing page (?lp=slug) ----
+    const { cfg: metaCfg, lps: metaLps, lpsLoaded } = useMetaTracking({ db, appId, firebaseUser, active: ['landing', 'metalp'].includes(currentView) && !currentUser });
+    const [lpSlug, setLpSlug] = useState(null);
+    useEffect(() => { const q = new URLSearchParams(window.location.search).get('lp'); if (q) { setLpSlug(q); setCurrentView('metalp'); } }, []);
+
 
 useEffect(() => {
     if (leadsData && leadsData.length > 0) {
@@ -69,7 +75,7 @@ useEffect(() => {
             try {
                 const parsedUser = JSON.parse(cachedUser);
                 setCurrentUser(parsedUser);
-                setCurrentView('dashboard');
+                if (!new URLSearchParams(window.location.search).get('lp')) setCurrentView('dashboard');
             } catch (error) {
                 localStorage.removeItem('sobatguru_session');
             }
@@ -356,6 +362,7 @@ useEffect(() => {
                     showAlert={showAlert}
                 />
             )}
+            {currentView === 'metalp' && <MetaLandingPage slug={lpSlug} lps={metaLps} lpsLoaded={lpsLoaded} cfg={metaCfg} setView={setCurrentView} showAlert={showAlert} />}
             {currentView === 'login' && <LoginPage setView={setCurrentView} onLogin={handleLogin} usersData={usersData} writeActivityLog={writeActivityLog} />}
             {currentView === 'dashboard' && currentUser && (
                 <Dashboard
@@ -388,6 +395,8 @@ useEffect(() => {
                     appId={appId}
                     writeActivityLog={writeActivityLog}
                     unreadLeadsCount={unreadLeadsCount}
+                    metaCfg={metaCfg}
+                    metaLps={metaLps}
                 />
             )}
 
@@ -518,6 +527,7 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
         const waNumbers = ['+6287781601968', '+6287822186229', '+6285724043082'];
         const message = customMessage || "Halo Admin, saya ingin bertanya tentang produknya...";
         const selectedNumber = waNumbers[Math.floor(Math.random() * waNumbers.length)];
+        trackWhatsApp(customMessage);
         window.open(`https://api.whatsapp.com/send?phone=${selectedNumber}&text=${encodeURIComponent(message)}`, '_blank');
     };
 
@@ -526,7 +536,7 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
 
     const handleLeadSubmit = (e) => {
         e.preventDefault();
-        addLead({ ...leadForm, date: new Date().toISOString() });
+        createTrackedLead({ form: leadForm });
         setLeadModal(false);
         showAlert("Terima kasih! Link sampel modul telah kami kirimkan ke WhatsApp Anda (Simulasi).", "Sukses", "success");
         setLeadForm({ name: '', phone: '' });
@@ -1015,7 +1025,7 @@ function Dashboard({
     usersData, addStaffUser, deleteStaffUser, catalogData,
     addProduct, updateProduct, deleteProduct, expensesData,
     addExpense, updateExpense, deleteExpense, previewsData,
-    payoutsData, updatePreview, payStaffCommission, showAlert, showConfirm, leadsData, appSettings, db, appId, writeActivityLog, unreadLeadsCount
+    payoutsData, updatePreview, payStaffCommission, showAlert, showConfirm, leadsData, appSettings, db, appId, writeActivityLog, unreadLeadsCount, metaCfg, metaLps
 }) {
     const [activeTab, setActiveTab] = useState(user.role === 'staff' ? 'input' : 'overview');
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -1074,6 +1084,8 @@ function Dashboard({
     active={activeTab === 'manage_leads'} 
     onClick={() => { setActiveTab('manage_leads'); setIsSidebarOpen(false); }} 
 />
+                            <SidebarBtn icon={<Filter />} label="Meta Ads & Pixel" active={activeTab === 'meta_settings'} onClick={() => { setActiveTab('meta_settings'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<TrendingUp />} label="Traffic & Sumber" active={activeTab === 'traffic'} onClick={() => { setActiveTab('traffic'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Lock />} label="Favicon & Brand" active={activeTab === 'brand_settings'} onClick={() => { setActiveTab('brand_settings'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Package />} label="Atur File Drive" active={activeTab === 'manage_admin_drive'} onClick={() => { setActiveTab('manage_admin_drive'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Clock />} label="Log Akses Drive" active={activeTab === 'manage_admin_logs'} onClick={() => { setActiveTab('manage_admin_logs'); setIsSidebarOpen(false); }} />
@@ -1093,6 +1105,7 @@ function Dashboard({
             active={activeTab === 'manage_leads'} 
             onClick={() => { setActiveTab('manage_leads'); setIsSidebarOpen(false); }} 
         />
+        <SidebarBtn icon={<TrendingUp />} label="Traffic Link Saya" active={activeTab === 'traffic'} onClick={() => { setActiveTab('traffic'); setIsSidebarOpen(false); }} />
         <SidebarBtn icon={<PlusCircle />} label="Input Closingan" active={activeTab === 'input'} onClick={() => { setActiveTab('input'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<ShoppingBag />} label="Riwayat Penjualan" active={activeTab === 'my_sales'} onClick={() => { setActiveTab('my_sales'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Award />} label="Laporan Komisi Saya" active={activeTab === 'my_commissions'} onClick={() => { setActiveTab('my_commissions'); setIsSidebarOpen(false); }} />
@@ -1148,7 +1161,13 @@ function Dashboard({
                     {user.role === 'admin' && activeTab === 'manage_catalog' && <ManageCatalog catalogData={catalogData} addProduct={addProduct} updateProduct={updateProduct} deleteProduct={deleteProduct} showConfirm={showConfirm} db={db} appId={appId} writeActivityLog={writeActivityLog} showAlert={showAlert} />}
                     {user.role === 'admin' && activeTab === 'manage_staff' && <ManageStaff usersData={usersData} addStaffUser={addStaffUser} deleteStaffUser={deleteStaffUser} showConfirm={showConfirm} />}
                     {activeTab === 'manage_leads' && (
-    <ManageLeadsDashboard leadsData={leadsData} showAlert={showAlert} db={db} appId={appId} />
+    <ManageLeadsMeta leadsData={leadsData} showAlert={showAlert} db={db} appId={appId} user={user} appSettings={appSettings} />
+                    )}
+                    {user.role === 'admin' && activeTab === 'meta_settings' && (
+                        <MetaPixelSettings db={db} appId={appId} cfg={metaCfg} lps={metaLps || []} showAlert={showAlert} showConfirm={showConfirm} />
+                    )}
+                    {activeTab === 'traffic' && (
+                        <TrafficDashboard db={db} appId={appId} user={user} leadsData={leadsData} lps={metaLps || []} showAlert={showAlert} />
                     )}
                     {user.role === 'admin' && activeTab === 'brand_settings' && (
                         <ManageBrandSettings appSettings={appSettings} db={db} appId={appId} showAlert={showAlert} />
@@ -1165,7 +1184,7 @@ function Dashboard({
                     {user.role === 'staff' && activeTab === 'my_ledger' && (
                         <StaffSalesLedger mySalesData={salesData.filter(s => s.staffName === user.name)} />
                     )}
-                    {user.role === 'staff' && activeTab === 'input' && <StaffInputForm addSale={addSale} userName={user.name} setTab={setActiveTab} catalogData={catalogData} writeActivityLog={writeActivityLog} appSettings={appSettings} />}
+                    {user.role === 'staff' && activeTab === 'input' && <StaffInputForm addSale={addSale} userName={user.name} setTab={setActiveTab} catalogData={catalogData} writeActivityLog={writeActivityLog} appSettings={appSettings} leadsData={leadsData} db={db} appId={appId} username={user.username} />}
                     {user.role === 'staff' && activeTab === 'my_sales' && <SalesTable data={salesData.filter(s => s.staffName === user.name)} title="Riwayat Penjualan Saya" showFilters={false} isAdmin={false} />}
                     {user.role === 'staff' && activeTab === 'my_commissions' && (
                         <StaffCommissions staffName={user.name} salesData={salesData} payoutsData={payoutsData} />
@@ -3022,7 +3041,8 @@ function ManageStaff({ usersData, addStaffUser, deleteStaffUser, showConfirm }) 
 }
 
 // Overhauled Custom Multi-Dropdown & Negotiable Automated Pricing Form for WhatsApp Closing Flow
-function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityLog, appSettings }) {
+function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityLog, appSettings, leadsData = [], db, appId, username }) {
+    const [leadId, setLeadId] = useState('');
     const [form, setForm] = useState({
         date: new Date().toISOString().split('T')[0],
         customer: '',
@@ -3097,7 +3117,11 @@ function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityL
             notes: form.notes
         };
 
-        addSale({ ...payloadClosingan, staffName: userName });
+        addSale({ ...payloadClosingan, leadId: leadId || null, staffName: userName });
+        if (leadId && db) {
+            try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leadsData', leadId), { status: 'konversi', saleAmount: Number(form.amount), convertedAt: new Date().toISOString(), convertedBy: username || userName }); }
+            catch (err) { console.error('Gagal menautkan closing ke lead', err); }
+        }
         if (writeActivityLog) {
             await writeActivityLog('INPUT_CLOSING', `Staff ${userName} mencatat transaksi random/multi-item WA: ${hasilGabunganProduk} senilai Rp ${form.amount}`);
         }
@@ -3126,6 +3150,13 @@ function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityL
                     </div>
                 </div>
 
+                <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">Berasal dari Lead (opsional — dikirim ke Meta sebagai Purchase)</label>
+                    <select value={leadId} onChange={e => { const l = leadsData.find(x => x.id === e.target.value); setLeadId(e.target.value); if (l && !form.customer) setForm(p => ({ ...p, customer: l.name })); }} className="w-full border px-3 py-2 rounded-xl bg-white text-sm text-gray-855">
+                        <option value="">— Bukan dari lead / tidak diketahui —</option>
+                        {leadsData.filter(l => l.status !== 'konversi' && (!l.ref || l.ref === username)).map(l => <option key={l.id} value={l.id}>{l.name} · {l.phone}{l.campaign ? ` · ${l.campaign}` : ''}</option>)}
+                    </select>
+                </div>
                 {/* AREA SELEKSI DAFTAR ITEM DILAKUKAN SECARA MULTI-BARIS */}
                 <div className="space-y-3 bg-gray-50 p-4 rounded-xl border border-gray-200">
                     <div className="flex justify-between items-center border-b pb-2">
