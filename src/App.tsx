@@ -8,9 +8,12 @@ import {
     Users, Trash2, Key, Award, Search, Filter, BarChart3, PieChart,
     Download, ChevronDown, ChevronUp, Package, Trophy, Menu, Clock, Upload
 } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, setDoc, writeBatch } from 'firebase/firestore';
+import WaRotatorAdmin from './features/marketing/WaRotatorAdmin';
+import AdminAuthGate from './features/marketing/AdminAuthGate';
+import { MetaPixelSettings as GlobalMetaPixelSettings } from './features/marketing/MetaPixel';
 import { useMetaTracking, MetaLandingPage, MetaPixelSettings, TrafficDashboard, ManageLeadsDashboard as ManageLeadsMeta, createTrackedLead, trackWhatsApp } from './metaSuite';
 
 // 1. Inisialisasi Cloud Database Resmi Sobat Guru Digital
@@ -24,7 +27,7 @@ const firebaseConfig = {
     measurementId: "G-1MD4HLCZFD"
 };
 
-const app = initializeApp(firebaseConfig);
+const app = getApps()[0] ?? initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = firebaseConfig.projectId;
@@ -1085,6 +1088,8 @@ function Dashboard({
     onClick={() => { setActiveTab('manage_leads'); setIsSidebarOpen(false); }} 
 />
                             <SidebarBtn icon={<Filter />} label="Meta Ads & Pixel" active={activeTab === 'meta_settings'} onClick={() => { setActiveTab('meta_settings'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<RefreshCw />} label="WA Rotator" active={activeTab === 'wa_rotator'} onClick={() => { setActiveTab('wa_rotator'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<Eye />} label="Meta Pixel (Global)" active={activeTab === 'global_pixel'} onClick={() => { setActiveTab('global_pixel'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<TrendingUp />} label="Traffic & Sumber" active={activeTab === 'traffic'} onClick={() => { setActiveTab('traffic'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Lock />} label="Favicon & Brand" active={activeTab === 'brand_settings'} onClick={() => { setActiveTab('brand_settings'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Package />} label="Atur File Drive" active={activeTab === 'manage_admin_drive'} onClick={() => { setActiveTab('manage_admin_drive'); setIsSidebarOpen(false); }} />
@@ -1165,6 +1170,12 @@ function Dashboard({
                     )}
                     {user.role === 'admin' && activeTab === 'meta_settings' && (
                         <MetaPixelSettings db={db} appId={appId} cfg={metaCfg} lps={metaLps || []} showAlert={showAlert} showConfirm={showConfirm} />
+                    )}
+                    {user.role === 'admin' && activeTab === 'wa_rotator' && (
+                        <AdminAuthGate><WaRotatorAdmin /></AdminAuthGate>
+                    )}
+                    {user.role === 'admin' && activeTab === 'global_pixel' && (
+                        <AdminAuthGate><GlobalMetaPixelSettings /></AdminAuthGate>
                     )}
                     {activeTab === 'traffic' && (
                         <TrafficDashboard db={db} appId={appId} user={user} leadsData={leadsData} lps={metaLps || []} showAlert={showAlert} />
