@@ -71,3 +71,15 @@ export default defineConfig([
   },
 ])
 ```
+
+---
+
+# Sobat Guru Digital — catatan project
+
+Fitur tambahan (WA Rotator + Meta Pixel global) ada di `src/features/marketing/`.
+Panduan pemasangan lengkap ada di [`INTEGRASI.md`](./INTEGRASI.md).
+
+- Salin `.env.example` menjadi `.env` lalu isi nilai Firebase (opsional; jika kosong dipakai konfigurasi bawaan).
+- Rules Firestore ada di `firestore.rules` (ganti `GANTI_EMAIL_ADMIN@gmail.com` lalu Publish di Firebase Console).
+- Link rotator publik: `https://DOMAIN-ANDA/wa/nama-link`.
+- Menjalankan: `npm install` → `npm run dev`. Build: `npm run build`.

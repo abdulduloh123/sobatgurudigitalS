@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    // ... aturan lama project Anda tetap dipertahankan; tambahkan dua blok ini ...
+
+    // ---------------------------------------------------------------------
+    // PERHATIAN: BLOK TRANSISI untuk data dashboard lama (penjualan, leads, staff, dll).
+    // Aturan lama Anda TIDAK ada di repo ini. Jika di Firebase Console sudah ada aturan
+    // untuk path ini, HAPUS blok ini dan gunakan aturan lama Anda (jangan timpa).
+    // Blok ini hanya meniru perilaku aplikasi sekarang (user anonim bisa baca/tulis)
+    // supaya dashboard lama tidak error setelah rules di-publish. Ini BELUM aman;
+    // lihat catatan keamanan untuk memperketatnya.
+    // ---------------------------------------------------------------------
+    match /artifacts/{appId}/public/data/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /waGroups/{id} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.token.email == 'GANTI_EMAIL_ADMIN@gmail.com';
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['counter', 'hits', 'total'])
+                    && request.resource.data.total == resource.data.total + 1
+                    && (request.resource.data.counter == resource.data.counter
+                        || request.resource.data.counter == resource.data.counter + 1);
+    }
+
+    match /settings/meta {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.token.email == 'GANTI_EMAIL_ADMIN@gmail.com';
+    }
+  }
+}
