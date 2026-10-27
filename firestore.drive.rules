@@ -1,0 +1,23 @@
+// Salin potongan ini ke dalam blok match /databases/{database}/documents
+// di Firebase Console. Jangan mengganti seluruh aturan website.
+function sampleRoleIs(role) {
+  return request.auth != null
+    && exists(/databases/$(database)/documents/sampleUsers/$(request.auth.uid))
+    && get(/databases/$(database)/documents/sampleUsers/$(request.auth.uid)).data.role == role;
+}
+
+match /sampleUsers/{userId} {
+  allow read: if request.auth != null && request.auth.uid == userId;
+  allow write: if false;
+}
+
+match /driveSamples/{sampleId} {
+  // CS menerima daftar yang sudah disaring backend.
+  allow read: if sampleRoleIs('admin');
+  allow create, update, delete: if sampleRoleIs('admin');
+}
+
+match /driveDownloadLogs/{logId} {
+  allow read: if sampleRoleIs('admin');
+  allow write: if false;
+}

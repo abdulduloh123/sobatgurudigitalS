@@ -1,5 +1,7 @@
 # React + TypeScript + Vite
 
+Panduan setup katalog sampel Google Drive dengan Firebase tersedia di [`DRIVE_INTEGRASI.md`](./DRIVE_INTEGRASI.md). Halaman katalog: `/samples`.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:
