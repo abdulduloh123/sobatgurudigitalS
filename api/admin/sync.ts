@@ -100,7 +100,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.json({ total: items.length, baru, hilang })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Sinkronisasi gagal.'
+    // Google API errors can be plain objects, so preserve their useful message
+    // instead of replacing every non-Error failure with a generic response.
+    console.error('Drive sync failed:', error)
+    const value = error as {
+      message?: unknown
+      errors?: Array<{ message?: unknown }>
+      response?: { data?: { error?: { message?: unknown } | string } }
+    } | null
+    const responseError = value?.response?.data?.error
+    const message = typeof value?.message === 'string'
+      ? value.message
+      : typeof responseError === 'string'
+        ? responseError
+        : typeof responseError?.message === 'string'
+          ? responseError.message
+          : typeof value?.errors?.[0]?.message === 'string'
+            ? value.errors[0].message
+            : 'Server gagal membaca Google Drive. Buka Vercel → Logs untuk melihat detail.'
     return res.status(500).json({ error: message })
   }
 }
