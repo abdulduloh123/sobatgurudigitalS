@@ -116,12 +116,9 @@ Nama folder `SMP`, `7`, dan `IPA` akan mengisi otomatis jenjang, kelas, dan mape
 
 ```dotenv
 FIREBASE_PROJECT_ID=sobatguru-digital
-FIREBASE_CLIENT_EMAIL=firebase-adminsdk-abc@project-id.iam.gserviceaccount.com
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nPASTE_PRIVATE_KEY_DI_SINI\n-----END PRIVATE KEY-----\n"
-
-GOOGLE_SERVICE_ACCOUNT_EMAIL=firebase-adminsdk-abc@project-id.iam.gserviceaccount.com
-GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nPASTE_PRIVATE_KEY_DI_SINI\n-----END PRIVATE KEY-----\n"
-DRIVE_ROOT_FOLDER_ID=PASTE_ID_FOLDER_DRIVE_DI_SINI
+FIREBASE_CLIENT_EMAIL=EMAIL_AKUN_LAYANAN_DARI_JSON
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nTEMPEL_PRIVATE_KEY_DARI_JSON\n-----END PRIVATE KEY-----\n"
+DRIVE_ROOT_FOLDER_ID=ID_FOLDER_DRIVE
 ```
 
 Cara mengisinya:
@@ -129,9 +126,10 @@ Cara mengisinya:
 - `FIREBASE_PROJECT_ID`: ID project Firebase, biasanya terlihat di **Project settings → General**. Untuk project ini kemungkinan `sobatguru-digital`.
 - `FIREBASE_CLIENT_EMAIL`: salin `client_email` dari JSON.
 - `FIREBASE_PRIVATE_KEY`: salin seluruh nilai `private_key` dari JSON, termasuk baris BEGIN/END. Biarkan tanda kutip di luar dan gunakan `\n` untuk jeda baris.
-- `GOOGLE_SERVICE_ACCOUNT_EMAIL`: isi sama persis dengan `FIREBASE_CLIENT_EMAIL`.
-- `GOOGLE_PRIVATE_KEY`: isi sama persis dengan `FIREBASE_PRIVATE_KEY`.
+- Google Drive otomatis memakai `FIREBASE_CLIENT_EMAIL` dan `FIREBASE_PRIVATE_KEY` yang sama. Jadi, **tidak perlu mengisi** `GOOGLE_SERVICE_ACCOUNT_EMAIL` atau `GOOGLE_PRIVATE_KEY`. Jika variabel itu sudah ada di Vercel, boleh dibiarkan; versi kode ini mengabaikannya.
 - `DRIVE_ROOT_FOLDER_ID`: isi ID folder dari langkah 5 tanpa URL.
+
+> **Satu langkah izin Drive:** bagikan folder utama ke email `FIREBASE_CLIENT_EMAIL` dengan akses **Viewer / Pelihat**. Jangan bagikan private key.
 
 > Jangan mengisi private key ke variabel yang diawali `VITE_`. Jangan kirim private key ke saya. `.env.local` sudah diabaikan Git, jadi jangan menghapus aturan itu dari `.gitignore`.
 
@@ -141,13 +139,12 @@ Vercel perlu nilai yang sama agar fitur berfungsi setelah website online.
 
 1. Buka [Vercel Dashboard](https://vercel.com/dashboard), pilih project website Sobatguru.
 2. Buka **Settings → Environment Variables**.
-3. Tambahkan satu per satu enam nama variabel berikut beserta nilainya dari `.env.local`:
+3. Pastikan empat variabel berikut ada (variabel `VITE_FIREBASE_*` yang sudah dipakai situs tetap diperlukan):
    - `FIREBASE_PROJECT_ID`
    - `FIREBASE_CLIENT_EMAIL`
    - `FIREBASE_PRIVATE_KEY`
-   - `GOOGLE_SERVICE_ACCOUNT_EMAIL`
-   - `GOOGLE_PRIVATE_KEY`
    - `DRIVE_ROOT_FOLDER_ID`
+   Variabel `GOOGLE_SERVICE_ACCOUNT_EMAIL` dan `GOOGLE_PRIVATE_KEY` tidak diperlukan.
 4. Pilih **Production**. Jika Anda juga memakai alamat Preview, centang **Preview**.
 5. Tekan **Save** setiap variabel.
 6. Buka tab **Deployments**, pilih deployment terbaru, tekan menu `…`, lalu pilih **Redeploy**.
@@ -178,8 +175,9 @@ Untuk penggunaan pertama, lebih mudah mencoba sesudah deploy ke Vercel, karena e
 
 - **“Akun ini belum memiliki akses”**: UID dokumen `sampleUsers` tidak cocok, atau nilai `role` bukan `admin` / `cs`.
 - **“Silakan login” terus kembali ke halaman login**: pastikan Email/Password sudah aktif dan email/sandi benar.
-- **Gagal sinkronisasi**: cek keenam environment variable di Vercel, pastikan deployment diulang setelah menyimpannya, dan pastikan folder dibagikan ke `client_email`.
-- **Tidak ada file ditemukan**: periksa ID folder. Pastikan akun service account mendapat Viewer pada folder induk.
+- **Akun server belum bisa membuka folder Drive**: bagikan folder utama ke email `FIREBASE_CLIENT_EMAIL` sebagai Viewer dan pastikan `DRIVE_ROOT_FOLDER_ID` benar.
+- **Kunci Firebase server tidak terbaca**: periksa `FIREBASE_CLIENT_EMAIL` dan `FIREBASE_PRIVATE_KEY` di Vercel.
+- **Sinkronisasi berhasil tetapi 0 file**: periksa apakah folder yang dituju benar dan akun tersebut bisa melihat file di dalamnya.
 - **CS tidak melihat file**: admin harus mengisi metadata dan menyetujui file terlebih dahulu.
 - **Unduhan file sangat besar gagal**: ada batas ukuran respons serverless Vercel; simpan file besar di layanan penyimpanan file khusus bila diperlukan.
 

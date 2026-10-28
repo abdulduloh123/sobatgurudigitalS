@@ -32,8 +32,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!await requireUser(req, res, ['admin'])) return
 
   try {
+    const rootFolderId = process.env.DRIVE_ROOT_FOLDER_ID?.trim()
+    if (!rootFolderId) {
+      return res.status(500).json({ error: 'ID folder Drive belum diisi. Tambahkan DRIVE_ROOT_FOLDER_ID di Vercel.' })
+    }
+
     const items: DriveItem[] = []
-    await walk(process.env.DRIVE_ROOT_FOLDER_ID!, [], items)
+    await walk(rootFolderId, [], items)
 
     const collection = firestore.collection('driveSamples')
     const snapshot = await collection.get()
@@ -106,10 +111,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const value = error as {
       message?: unknown
       errors?: Array<{ message?: unknown }>
-      response?: { data?: { error?: { message?: unknown } | string } }
+      response?: { status?: number; data?: { error?: { message?: unknown } | string } }
     } | null
     const responseError = value?.response?.data?.error
-    const message = typeof value?.message === 'string'
+    const detail = typeof value?.message === 'string'
       ? value.message
       : typeof responseError === 'string'
         ? responseError
@@ -117,7 +122,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           ? responseError.message
           : typeof value?.errors?.[0]?.message === 'string'
             ? value.errors[0].message
-            : 'Server gagal membaca Google Drive. Buka Vercel → Logs untuk melihat detail.'
+            : ''
+    const status = value?.response?.status ?? (error as { code?: number } | null)?.code
+    const message = /invalid_grant|private key|PEM|DECODER/i.test(detail)
+      ? 'Kunci Firebase server tidak terbaca. Periksa FIREBASE_CLIENT_EMAIL dan FIREBASE_PRIVATE_KEY di Vercel.'
+      : /permission|forbidden|not found|404|403/i.test(detail)
+        ? 'Akun server belum bisa membuka folder Drive. Bagikan folder utama ke FIREBASE_CLIENT_EMAIL sebagai Viewer dan pastikan DRIVE_ROOT_FOLDER_ID benar.'
+        : detail || (status ? `Google Drive mengembalikan error ${status}. Periksa izin folder dan ID folder Drive.` : 'Server gagal membaca Google Drive. Buka Vercel → Logs untuk melihat detail.')
     return res.status(500).json({ error: message })
   }
 }

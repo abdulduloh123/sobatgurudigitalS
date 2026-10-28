@@ -15,9 +15,10 @@ const firebaseApp = getApps().find((item) => item.name === 'drive-api') ?? initi
 export const firebaseAuth = getAuth(firebaseApp)
 export const firestore = getFirestore(firebaseApp)
 
+// The existing Firebase service account also authenticates with Google Drive.
 const googleAuth = new google.auth.JWT({
-  email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-  key: (process.env.GOOGLE_PRIVATE_KEY ?? '').replace(/\\n/g, '\n'),
+  email: process.env.FIREBASE_CLIENT_EMAIL,
+  key: (process.env.FIREBASE_PRIVATE_KEY ?? '').replace(/\\n/g, '\n'),
   scopes: ['https://www.googleapis.com/auth/drive.readonly'],
 })
 export const drive = google.drive({ version: 'v3', auth: googleAuth })
