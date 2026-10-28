@@ -1,18 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { collection, doc, getDocs, updateDoc } from 'firebase/firestore'
-import { sampleDriveDb } from '../../lib/firebase'
-import { syncDrive } from '../lib/api'
+import { Check, CheckCircle2, FileSearch, FolderSync, Search, XCircle } from 'lucide-react'
+import { listAdminSamples, syncDrive, updateAdminSample } from '../lib/api'
 import type { Sample } from '../types'
 
 type Filter = 'semua' | 'draft' | 'disetujui' | 'hilang'
 const JENIS = ['Bab', 'Prota', 'Promes', 'Modul Ajar', 'ATP', 'Soal', 'Lainnya']
-
-async function fetchSamples(): Promise<Sample[]> {
-  const snapshot = await getDocs(collection(sampleDriveDb, 'driveSamples'))
-  const rows = snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }) as Sample)
-  rows.sort((a, b) => `${a.drive_path ?? ''}/${a.file_name}`.localeCompare(`${b.drive_path ?? ''}/${b.file_name}`))
-  return rows
-}
 
 function Field(props: {
   label: string
@@ -44,10 +36,11 @@ export default function AdminDrive() {
   const [kataKunci, setKataKunci] = useState('')
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
+  const [query, setQuery] = useState('')
 
   const load = useCallback(async () => {
     try {
-      setSamples(await fetchSamples())
+      setSamples(await listAdminSamples())
     } catch (error) {
       setMsg(error instanceof Error ? error.message : 'Gagal membaca katalog Firebase.')
     }
@@ -55,7 +48,7 @@ export default function AdminDrive() {
 
   useEffect(() => {
     let alive = true
-    void fetchSamples().then((rows) => {
+    void listAdminSamples().then((rows) => {
       if (alive) setSamples(rows)
     }).catch((error: unknown) => {
       if (alive) setMsg(error instanceof Error ? error.message : 'Gagal membaca katalog Firebase.')
@@ -68,7 +61,10 @@ export default function AdminDrive() {
     if (filter === 'disetujui') return s.boleh_dikirim
     if (filter === 'draft') return !s.boleh_dikirim && !s.is_missing
     return true
-  }), [samples, filter])
+  }).filter((s) => {
+    const q = query.trim().toLowerCase()
+    return !q || `${s.file_name} ${s.drive_path ?? ''} ${s.mapel ?? ''} ${s.topik ?? ''}`.toLowerCase().includes(q)
+  }), [samples, filter, query])
 
   function pick(s: Sample) {
     setSelected({ ...s })
@@ -102,7 +98,7 @@ export default function AdminDrive() {
     }
     setBusy(true)
     try {
-      await updateDoc(doc(sampleDriveDb, 'driveSamples', selected.id), {
+      await updateAdminSample(selected.id, {
       jenjang: selected.jenjang || null,
       kelas: selected.kelas || null,
       mapel: selected.mapel || null,
@@ -125,72 +121,120 @@ export default function AdminDrive() {
   const tabs: [Filter, string][] = [
     ['draft', 'Belum disetujui'], ['disetujui', 'Disetujui'], ['hilang', 'Hilang dari Drive'], ['semua', 'Semua'],
   ]
+  const counts = {
+    total: samples.length,
+    draft: samples.filter((s) => !s.boleh_dikirim && !s.is_missing).length,
+    approved: samples.filter((s) => s.boleh_dikirim && !s.is_missing).length,
+    missing: samples.filter((s) => s.is_missing).length,
+  }
 
   return (
-    <div className="p-4 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">Repositori sampel (Google Drive)</h1>
-        <button onClick={sync} disabled={busy} className="bg-slate-900 text-white rounded px-4 py-2 disabled:opacity-50">
-          {busy ? 'Memproses…' : 'Sinkronkan dari Drive'}
-        </button>
-      </div>
-      {msg && <p className="mb-3 text-sm bg-amber-50 border border-amber-200 rounded px-3 py-2">{msg}</p>}
-
-      <div className="grid md:grid-cols-2 gap-4">
-        <div>
-          <div className="flex gap-2 mb-2 flex-wrap">
-            {tabs.map(([k, label]) => (
-              <button key={k} onClick={() => setFilter(k)}
-                className={`px-3 py-1 rounded border text-sm ${filter === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-300'}`}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <ul className="border border-slate-200 rounded divide-y max-h-[70vh] overflow-auto">
-            {shown.length === 0 && <li className="p-3 text-sm text-slate-500">Tidak ada file di daftar ini.</li>}
-            {shown.map((s) => (
-              <li key={s.id}>
-                <button onClick={() => pick(s)}
-                  className={`w-full text-left p-3 hover:bg-slate-50 ${selected?.id === s.id ? 'bg-slate-100' : ''}`}>
-                  <div className="text-sm font-medium">{s.file_name}</div>
-                  <div className="text-xs text-slate-500">{s.drive_path || '(root)'}</div>
-                  <div className="text-xs mt-1">
-                    {s.boleh_dikirim ? 'Boleh dikirim' : s.is_missing ? 'Hilang dari Drive' : 'Belum disetujui'}
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="border border-slate-200 rounded p-4">
-          {!selected ? (
-            <p className="text-sm text-slate-500">Pilih file di sebelah kiri untuk mengisi data dan menyetujuinya.</p>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-sm font-medium break-all">{selected.file_name}</p>
-              <div className="grid grid-cols-3 gap-2">
-                <Field label="Jenjang" value={selected.jenjang ?? ''} onChange={(v) => set('jenjang', v)} list={['SD', 'SMP', 'SMA', 'SMK']} />
-                <Field label="Kelas" value={selected.kelas ?? ''} onChange={(v) => set('kelas', v)} />
-                <Field label="Mapel" value={selected.mapel ?? ''} onChange={(v) => set('mapel', v)} />
-              </div>
-              <Field label="Versi buku" value={selected.versi_buku ?? ''} onChange={(v) => set('versi_buku', v)} />
-              <Field label="Jenis dokumen" value={selected.jenis_dokumen ?? ''} onChange={(v) => set('jenis_dokumen', v)} list={JENIS} />
-              <Field label="Bab / topik" value={selected.topik ?? ''} onChange={(v) => set('topik', v)} />
-              <Field label="Kata kunci (pisahkan koma)" value={kataKunci} onChange={setKataKunci} />
-              <Field label="Paket produk terkait" value={selected.paket_produk ?? ''} onChange={(v) => set('paket_produk', v)} />
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={selected.boleh_dikirim} disabled={selected.is_missing}
-                  onChange={(e) => set('boleh_dikirim', e.target.checked)} />
-                Disetujui, CS boleh mengirim file ini ke guru
-              </label>
-              <button onClick={save} disabled={busy} className="bg-slate-900 text-white rounded px-4 py-2 disabled:opacity-50">
-                Simpan perubahan
-              </button>
+    <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-7">
+      <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 p-5 text-white shadow-lg md:p-7">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="rounded-xl bg-white/10 p-3"><FolderSync size={25} /></div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-200">Pusat materi tim</p>
+              <h1 className="mt-1 text-2xl font-bold md:text-3xl">Repositori sampel</h1>
+              <p className="mt-2 max-w-xl text-sm text-blue-100">Temukan file dari Google Drive, rapikan informasinya, lalu pilih materi yang boleh dibagikan CS.</p>
             </div>
-          )}
+          </div>
+          <button onClick={sync} disabled={busy}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 font-semibold text-blue-950 shadow transition hover:bg-blue-50 disabled:cursor-wait disabled:opacity-70">
+            <FolderSync size={18} className={busy ? 'animate-spin' : ''} />
+            {busy ? 'Sedang sinkron…' : 'Sinkronkan Drive'}
+          </button>
         </div>
-      </div>
+      </section>
+
+      {msg && <div role="status" className={`flex items-start gap-2 rounded-xl border px-4 py-3 text-sm ${msg.toLowerCase().includes('gagal') || msg.toLowerCase().includes('error') ? 'border-red-200 bg-red-50 text-red-800' : 'border-blue-200 bg-blue-50 text-blue-900'}`}>
+        {msg.toLowerCase().includes('gagal') || msg.toLowerCase().includes('error') ? <XCircle size={18} className="mt-0.5 shrink-0" /> : <CheckCircle2 size={18} className="mt-0.5 shrink-0" />}
+        <span>{msg}</span>
+      </div>}
+
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          { label: 'Total file', value: counts.total, icon: <FileSearch size={19} />, color: 'text-blue-700 bg-blue-50' },
+          { label: 'Perlu diperiksa', value: counts.draft, icon: <FileSearch size={19} />, color: 'text-amber-700 bg-amber-50' },
+          { label: 'Siap dibagikan', value: counts.approved, icon: <CheckCircle2 size={19} />, color: 'text-emerald-700 bg-emerald-50' },
+          { label: 'Tidak ditemukan', value: counts.missing, icon: <XCircle size={19} />, color: 'text-slate-600 bg-slate-100' },
+        ].map((item) => <div key={item.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className={`mb-3 inline-flex rounded-lg p-2 ${item.color}`}>{item.icon}</div>
+          <div className="text-2xl font-bold text-slate-900">{item.value.toLocaleString('id-ID')}</div>
+          <div className="mt-1 text-xs font-medium text-slate-500">{item.label}</div>
+        </div>)}
+      </section>
+
+      <section className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(340px,0.85fr)]">
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="space-y-4 border-b border-slate-100 p-4">
+            <div className="relative">
+              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Cari nama file, mapel, topik, atau folder…"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-3 text-sm outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100" />
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {tabs.map(([key, label]) => {
+                const count = key === 'semua' ? counts.total : key === 'draft' ? counts.draft : key === 'disetujui' ? counts.approved : counts.missing
+                return <button key={key} onClick={() => setFilter(key)}
+                  className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold transition ${filter === key ? 'bg-blue-950 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                  {label} <span className="ml-1 opacity-70">{count}</span>
+                </button>
+              })}
+            </div>
+          </div>
+          <div className="max-h-[68vh] overflow-y-auto p-2">
+            {shown.length === 0 ? <div className="px-5 py-12 text-center">
+              <FileSearch size={32} className="mx-auto text-slate-300" />
+              <p className="mt-3 font-semibold text-slate-700">Belum ada file di bagian ini</p>
+              <p className="mt-1 text-sm text-slate-500">Coba ganti filter atau sinkronkan Drive.</p>
+            </div> : shown.map((sample) => <button key={sample.id} onClick={() => pick(sample)}
+              className={`mb-1 w-full rounded-xl p-3 text-left transition ${selected?.id === sample.id ? 'bg-blue-50 ring-1 ring-blue-200' : 'hover:bg-slate-50'}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="break-words text-sm font-semibold text-slate-900">{sample.file_name}</p>
+                  <p className="mt-1 truncate text-xs text-slate-500">{sample.drive_path || 'Folder utama'}</p>
+                  <p className="mt-2 text-xs text-slate-600">{[sample.jenjang, sample.kelas && `Kelas ${sample.kelas}`, sample.mapel].filter(Boolean).join(' · ') || 'Informasi materi belum dilengkapi'}</p>
+                </div>
+                <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${sample.is_missing ? 'bg-slate-100 text-slate-500' : sample.boleh_dikirim ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                  {sample.is_missing ? 'Tidak ditemukan' : sample.boleh_dikirim ? 'Siap dibagikan' : 'Perlu diperiksa'}
+                </span>
+              </div>
+            </button>)}
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:sticky xl:top-5">
+          <div className="border-b border-slate-100 bg-slate-50 px-5 py-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-blue-700">Detail materi</p>
+            <h2 className="mt-1 truncate font-bold text-slate-900">{selected?.file_name || 'Pilih file untuk mulai'}</h2>
+          </div>
+          {!selected ? <div className="p-8 text-center text-sm text-slate-500">
+            <FileSearch size={30} className="mx-auto mb-3 text-slate-300" />Klik salah satu file di daftar untuk mengisi kategori dan statusnya.
+          </div> : <div className="space-y-4 p-5">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Jenjang" value={selected.jenjang ?? ''} onChange={(v) => set('jenjang', v)} list={['SD', 'SMP', 'SMA', 'SMK']} />
+              <Field label="Kelas" value={selected.kelas ?? ''} onChange={(v) => set('kelas', v)} />
+              <Field label="Mata pelajaran" value={selected.mapel ?? ''} onChange={(v) => set('mapel', v)} />
+              <Field label="Jenis dokumen" value={selected.jenis_dokumen ?? ''} onChange={(v) => set('jenis_dokumen', v)} list={JENIS} />
+            </div>
+            <Field label="Versi buku" value={selected.versi_buku ?? ''} onChange={(v) => set('versi_buku', v)} />
+            <Field label="Bab atau topik" value={selected.topik ?? ''} onChange={(v) => set('topik', v)} />
+            <Field label="Kata kunci (pisahkan dengan koma)" value={kataKunci} onChange={setKataKunci} />
+            <Field label="Paket produk terkait" value={selected.paket_produk ?? ''} onChange={(v) => set('paket_produk', v)} />
+            {selected.is_missing && <p className="rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">File tidak ditemukan di Drive. Sinkronkan lagi setelah file dipulihkan.</p>}
+            <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-sm ${selected.boleh_dikirim ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'} ${selected.is_missing ? 'opacity-60' : ''}`}>
+              <input type="checkbox" className="mt-0.5 accent-emerald-700" checked={selected.boleh_dikirim} disabled={selected.is_missing}
+                onChange={(e) => set('boleh_dikirim', e.target.checked)} />
+              <span><span className="block font-semibold text-slate-800">Siap dibagikan CS</span><span className="mt-0.5 block text-xs text-slate-500">CS dapat mencari dan mengirim file ini.</span></span>
+            </label>
+            <button onClick={save} disabled={busy} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-950 px-4 py-3 font-semibold text-white transition hover:bg-blue-900 disabled:opacity-50">
+              <Check size={18} /> Simpan perubahan
+            </button>
+          </div>}
+        </div>
+      </section>
     </div>
   )
 }
