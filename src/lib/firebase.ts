@@ -19,9 +19,9 @@ export const app = getApps()[0] ?? initializeApp(cfg);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 
-// Keep Drive staff sessions separate from the existing site's anonymous/admin
-// Firebase session while using the same Firebase project and Firestore data.
-export const sampleDriveApp = getApps().find((item) => item.name === "sample-drive")
-  ?? initializeApp(cfg, "sample-drive");
-export const sampleDriveDb = getFirestore(sampleDriveApp);
-export const sampleDriveAuth = getAuth(sampleDriveApp);
+// Samples shares the site's Firebase session, so staff who sign in to the
+// internal dashboard can open it without a second login.
+export const sampleDriveApp = app;
+export const sampleDriveDb = db;
+export const sampleDriveAuth = auth;
+
