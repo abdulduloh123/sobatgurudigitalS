@@ -35,17 +35,35 @@ export async function requireUser(
     return null
   }
 
+  let decoded: Awaited<ReturnType<typeof firebaseAuth.verifyIdToken>>
   try {
-    const decoded = await firebaseAuth.verifyIdToken(token)
+    decoded = await firebaseAuth.verifyIdToken(token)
+  } catch (error) {
+    const value = error as { code?: unknown; message?: unknown }
+    console.error('Sample Firebase token verification failed:', {
+      code: value?.code,
+      message: value?.message,
+    })
+    res.status(401).json({ error: 'Sesi Firebase Samples tidak valid atau kedaluwarsa. Keluar dari Samples, lalu masuk kembali.' })
+    return null
+  }
+
+  try {
     const user = await firestore.collection('sampleUsers').doc(decoded.uid).get()
     const role = user.data()?.role
     if (typeof role !== 'string' || !roles.includes(role)) {
-      res.status(403).json({ error: 'Akun ini belum memiliki akses.' })
+      res.status(403).json({ error: 'Akun ini belum diberi peran Samples. Minta admin mengaktifkan peran admin atau cs.' })
       return null
     }
     return { id: decoded.uid, role }
-  } catch {
-    res.status(401).json({ error: 'Sesi tidak valid. Silakan login ulang.' })
+  } catch (error) {
+    const value = error as { code?: unknown; message?: unknown }
+    console.error('Sample role lookup failed:', {
+      code: value?.code,
+      message: value?.message,
+    })
+    res.status(503).json({ error: 'Server gagal memeriksa peran Samples. Admin perlu memeriksa Firebase project dan akses Firestore di Vercel Logs.' })
     return null
   }
 }
+
