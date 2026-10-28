@@ -53,7 +53,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const known = new Map<string, DocumentReference>()
       for (const entry of knownSnapshot.docs) {
         const driveId = entry.data().drive_file_id
-        if (typeof driveId === 'string' && driveId) known.set(driveId, entry)
+        if (typeof driveId === 'string' && driveId) known.set(driveId, entry.ref)
       }
 
       let pages = 0
@@ -85,7 +85,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         let added = 0
         for (const item of items) {
           const existing = known.get(item.id)
-          const ref = existing?.ref ?? collection.doc()
+          const ref = existing ?? collection.doc()
           const values = {
             file_name: item.name,
             mime_type: item.mimeType,
