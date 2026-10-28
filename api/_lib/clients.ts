@@ -48,6 +48,16 @@ export async function requireUser(
     return null
   }
 
+  const claimedRole = decoded.samplesRole
+  if (typeof claimedRole === 'string') {
+    if (!roles.includes(claimedRole)) {
+      res.status(403).json({ error: 'Akun ini belum diberi akses ke bagian Samples ini.' })
+      return null
+    }
+    return { id: decoded.uid, role: claimedRole }
+  }
+
+  // Backward compatibility for Firebase accounts already assigned in sampleUsers.
   try {
     const user = await firestore.collection('sampleUsers').doc(decoded.uid).get()
     const role = user.data()?.role
