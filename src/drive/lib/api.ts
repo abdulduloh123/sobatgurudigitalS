@@ -19,6 +19,22 @@ export async function listSamples(): Promise<Sample[]> {
   return json.samples as Sample[]
 }
 
+export async function listAdminSamples(): Promise<Sample[]> {
+  const res = await authFetch('/api/admin/samples/list')
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json.error ?? 'Gagal memuat repositori sampel.')
+  return json.samples as Sample[]
+}
+
+export async function updateAdminSample(id: string, changes: Partial<Sample>): Promise<void> {
+  const res = await authFetch('/api/admin/samples/update', {
+    method: 'POST',
+    body: JSON.stringify({ id, changes }),
+  })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json.error ?? 'Gagal menyimpan perubahan sampel.')
+}
+
 export async function syncDrive(onProgress?: (total: number) => void): Promise<{ total: number; baru: number; hilang: number }> {
   while (true) {
     const res = await authFetch('/api/admin/sync', { method: 'POST' })
