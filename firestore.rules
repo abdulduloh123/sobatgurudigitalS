@@ -7,10 +7,15 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/sampleUsers/$(request.auth.uid)).data.role == role;
     }
 
-    // Data used by the existing website dashboard and Meta tracking.
-    // This keeps the current behavior of the app's signed-in Firebase users.
-    match /artifacts/{appId}/public/data/{document=**} {
-      allow read, write: if request.auth != null;
+    // Staff credentials are read and changed only by the authenticated server.
+    // The server migrates legacy passwords to hashes and removes password fields.
+    match /artifacts/{appId}/public/data/usersData/{userId} {
+      allow read, write: if false;
+    }
+
+    // Existing dashboard data remains available to signed-in app sessions.
+    match /artifacts/{appId}/public/data/{collectionName}/{document=**} {
+      allow read, write: if request.auth != null && collectionName != 'usersData';
     }
 
     // Public landing pages are readable by visitors; changes require admin login.
@@ -56,3 +61,4 @@ service cloud.firestore {
     }
   }
 }
+
