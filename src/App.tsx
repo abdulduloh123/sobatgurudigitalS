@@ -1075,6 +1075,7 @@ function Dashboard({
                             <div className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mb-2 mt-6 px-2">Manajemen Konten</div>
                             <SidebarBtn icon={<FileText />} label="Pratinjau Landing" active={activeTab === 'manage_previews'} onClick={() => { setActiveTab('manage_previews'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Package />} label="Katalog Landing" active={activeTab === 'manage_catalog'} onClick={() => { setActiveTab('manage_catalog'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<Book />} label="Samples" active={false} onClick={() => { window.location.href = '/samples#/admin'; }} />
                             <SidebarBtn icon={<Users />} label="Manajemen Staff" active={activeTab === 'manage_staff'} onClick={() => { setActiveTab('manage_staff'); setIsSidebarOpen(false); }} />
                             <SidebarBtn 
     icon={
@@ -1114,6 +1115,7 @@ function Dashboard({
         <SidebarBtn icon={<PlusCircle />} label="Input Closingan" active={activeTab === 'input'} onClick={() => { setActiveTab('input'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<ShoppingBag />} label="Riwayat Penjualan" active={activeTab === 'my_sales'} onClick={() => { setActiveTab('my_sales'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Award />} label="Laporan Komisi Saya" active={activeTab === 'my_commissions'} onClick={() => { setActiveTab('my_commissions'); setIsSidebarOpen(false); }} />
+        <SidebarBtn icon={<Book />} label="Samples" active={false} onClick={() => { window.location.href = '/samples#/cs'; }} />
                             <SidebarBtn icon={<Book />} label="Unduh Sampel Perangkat" active={activeTab === 'resource_hub'} onClick={() => { setActiveTab('resource_hub'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<BarChart3 />} label="Buku Kas Penjualan" active={activeTab === 'my_ledger'} onClick={() => { setActiveTab('my_ledger'); setIsSidebarOpen(false); }} />
                         </>
