@@ -50,11 +50,25 @@ export async function requireUser(
 
   const claimedRole = decoded.samplesRole
   if (typeof claimedRole === 'string') {
-    if (!roles.includes(claimedRole)) {
+    const internalRole = decoded.internalRole
+    const expectedSamplesRole = internalRole === 'admin' ? 'admin' : internalRole === 'staff' ? 'cs' : null
+    if (!roles.includes(claimedRole) || expectedSamplesRole !== claimedRole) {
       res.status(403).json({ error: 'Akun ini belum diberi akses ke bagian Samples ini.' })
       return null
     }
-    return { id: decoded.uid, role: claimedRole }
+    try {
+      const account = await firestore.collection('internalAuth').doc(decoded.uid).get()
+      if (!account.exists || account.data()?.role !== internalRole) {
+        res.status(403).json({ error: 'Akun internal ini sudah tidak aktif. Hubungi admin.' })
+        return null
+      }
+      return { id: decoded.uid, role: claimedRole }
+    } catch (error) {
+      const value = error as { code?: unknown; message?: unknown }
+      console.error('Internal Samples account check failed:', { code: value?.code, message: value?.message })
+      res.status(503).json({ error: 'Server gagal memeriksa akun internal. Coba lagi sebentar.' })
+      return null
+    }
   }
 
   // Backward compatibility for Firebase accounts already assigned in sampleUsers.
