@@ -87,19 +87,17 @@ useEffect(() => {
 
     useEffect(() => {
         if (!auth) return;
-        const initAuth = async () => {
-            try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-            } catch (error) {
-                console.error("Auth error:", error);
-            }
-        };
-        initAuth();
-        const unsubscribe = onAuthStateChanged(auth, setFirebaseUser);
+        let startingSession = false;
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+            setFirebaseUser(user);
+            if (user || startingSession) return;
+            startingSession = true;
+            const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : '';
+            const signIn = initialToken
+                ? signInWithCustomToken(auth, initialToken)
+                : signInAnonymously(auth);
+            signIn.catch((error) => console.error("Auth error:", error));
+        });
         return () => unsubscribe();
     }, []);
 
@@ -202,12 +200,15 @@ useEffect(() => {
     }, []);
 
     const handleLogin = (user) => {
-        setCurrentUser(user);
-        localStorage.setItem('sobatguru_session', JSON.stringify(user));
+        const safeUser = { ...user };
+        delete safeUser.password;
+        setCurrentUser(safeUser);
+        localStorage.setItem('sobatguru_session', JSON.stringify(safeUser));
         setCurrentView('dashboard');
     };
 
     const handleLogout = () => {
+        void auth.signOut().catch((error) => console.error('Firebase sign-out error:', error));
         setCurrentUser(null);
         localStorage.removeItem('sobatguru_session');
         setCurrentView('landing');
