@@ -111,12 +111,6 @@ useEffect(() => {
             setSalesData(fetchedSales);
         }, (error) => console.error("Firestore error:", error));
 
-        const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'usersData');
-        const unsubscribeUsers = onSnapshot(usersRef, (snapshot) => {
-            const fetchedUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setUsersData(fetchedUsers);
-        }, (error) => console.error("Firestore error:", error));
-
         const catalogRef = collection(db, 'artifacts', appId, 'public', 'data', 'catalogData');
         const unsubscribeCatalog = onSnapshot(catalogRef, (snapshot) => {
             const fetchedCatalog = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -171,7 +165,6 @@ useEffect(() => {
         }, (error) => console.error("Settings error:", error));
         return () => {
             unsubscribeSales();
-            unsubscribeUsers();
             unsubscribeCatalog();
             unsubscribeExpenses();
             unsubscribePreviews();
@@ -180,6 +173,21 @@ useEffect(() => {
             unsubscribeSettings();
         };
     }, [firebaseUser]);
+
+    useEffect(() => {
+        let alive = true;
+        setUsersData([]);
+        if (!firebaseUser || firebaseUser.isAnonymous || currentUser?.role !== 'admin') return () => { alive = false; };
+        void firebaseUser.getIdTokenResult().then(async ({ claims }) => {
+            if (claims.internalRole !== 'admin') return;
+            const token = await firebaseUser.getIdToken();
+            const response = await fetch('/api/admin/staff/list', { headers: { Authorization: `Bearer ${token}` } });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.error || 'Gagal memuat daftar staff.');
+            if (alive) setUsersData(Array.isArray(result.users) ? result.users : []);
+        }).catch((error) => console.error('Staff list error:', error));
+        return () => { alive = false; };
+    }, [firebaseUser, currentUser?.role]);
 
     useEffect(() => {
         const style = document.createElement('style');
@@ -208,10 +216,24 @@ useEffect(() => {
     };
 
     const handleLogout = () => {
-        void auth.signOut().catch((error) => console.error('Firebase sign-out error:', error));
+        void auth.signOut().then(() => signInAnonymously(auth)).catch((error) => console.error('Firebase sign-out error:', error));
         setCurrentUser(null);
         localStorage.removeItem('sobatguru_session');
         setCurrentView('landing');
+    };
+
+    const authenticateInternalUser = async (username, password) => {
+        const response = await fetch('/api/auth/internal-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || typeof result.token !== 'string' || !result.user) {
+            throw new Error(result.error || 'Username atau password salah.');
+        }
+        await signInWithCustomToken(auth, result.token);
+        return result.user;
     };
 
     const addSale = async (newSale) => {
@@ -243,16 +265,34 @@ useEffect(() => {
     };
 
     const addStaffUser = async (newUser) => {
-        try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'usersData'), newUser); showAlert("Staff ditambahkan!", "Sukses", "success"); }
-        catch (error) { showAlert("Gagal menambah staff!", "Error", "error"); }
+        try {
+            const token = await auth.currentUser?.getIdToken();
+            const response = await fetch('/api/admin/staff/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token ?? ''}` },
+                body: JSON.stringify(newUser),
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.error || 'Gagal membuat akun staff.');
+            if (result.user) setUsersData((current) => [...current, result.user]);
+            showAlert("Akun staff dibuat. Kata sandinya tersimpan aman.", "Sukses", "success");
+        } catch (error) { showAlert(error instanceof Error ? error.message : "Gagal menambah staff!", "Error", "error"); }
     };
 
     const deleteStaffUser = async (userId) => {
         try {
-            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'usersData', userId));
+            const token = await auth.currentUser?.getIdToken();
+            const response = await fetch('/api/admin/staff/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token ?? ''}` },
+                body: JSON.stringify({ id: userId }),
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.error || 'Gagal menghapus akun staff.');
+            setUsersData((current) => current.filter((user) => user.id !== userId));
             showAlert("Akun staff berhasil dihapus!", "Sukses", "success");
         }
-        catch (error) { showAlert("Gagal menghapus!", "Error", "error"); }
+        catch (error) { showAlert(error instanceof Error ? error.message : "Gagal menghapus!", "Error", "error"); }
     };
 
     const addProduct = async (newProduct) => {
@@ -367,7 +407,7 @@ useEffect(() => {
                 />
             )}
             {currentView === 'metalp' && <MetaLandingPage slug={lpSlug} lps={metaLps} lpsLoaded={lpsLoaded} cfg={metaCfg} setView={setCurrentView} showAlert={showAlert} />}
-            {currentView === 'login' && <LoginPage setView={setCurrentView} onLogin={handleLogin} usersData={usersData} writeActivityLog={writeActivityLog} />}
+            {currentView === 'login' && <LoginPage setView={setCurrentView} onLogin={handleLogin} authenticateInternalUser={authenticateInternalUser} writeActivityLog={writeActivityLog} />}
             {currentView === 'dashboard' && currentUser && (
                 <Dashboard
                     user={currentUser}
@@ -963,32 +1003,28 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
 
 // ---------------------- HALAMAN LOGIN ----------------------
 
-function LoginPage({ setView, onLogin, usersData, writeActivityLog }) {
+function LoginPage({ setView, onLogin, authenticateInternalUser, writeActivityLog }) {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
-
-    const FALLBACK_ADMIN = {
-        id: 'admin-fallback',
-        name: 'Admin Sobat Guru',
-        username: 'admin',
-        password: 'admin123',
-        role: 'admin'
-    };
+    const [busy, setBusy] = useState(false);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        const matchedUser = usersData.find(u => u.username === username && u.password === password)
-            || (username === FALLBACK_ADMIN.username && password === FALLBACK_ADMIN.password ? FALLBACK_ADMIN : null);
-        if (matchedUser) {
+        setBusy(true);
+        setError('');
+        try {
+            const matchedUser = await authenticateInternalUser(username, password);
             try { await writeActivityLog('LOGIN_SUCCESS', `User ${matchedUser.name} berhasil login.`, matchedUser); } catch (e) { }
             onLogin(matchedUser);
-        } else {
+        } catch (authError) {
+            setError(authError instanceof Error ? authError.message : 'Gagal masuk. Periksa username dan password.');
             try {
                 const tempUser = { name: `Attempt: ${username}`, role: 'unknown', username, id: 'N/A' };
                 await writeActivityLog('LOGIN_FAILED', `Gagal login dengan username: ${username}`, tempUser);
             } catch (e) { }
-            setError('Username atau Password salah!');
+        } finally {
+            setBusy(false);
         }
     };
 
@@ -1009,10 +1045,10 @@ function LoginPage({ setView, onLogin, usersData, writeActivityLog }) {
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full border-gray-300 border px-4 py-2 rounded-lg bg-white text-gray-855" placeholder="••••••••" />
+                            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" className="w-full border-gray-300 border px-4 py-2 rounded-lg bg-white text-gray-855" placeholder="••••••••" />
                         </div>
-                        <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-md transition flex justify-center items-center gap-2">
-                            Masuk Dashboard <ArrowRight size={18} />
+                        <button type="submit" disabled={busy} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-md transition flex justify-center items-center gap-2 disabled:opacity-60">
+                            {busy ? 'Memeriksa akun…' : 'Masuk Dashboard'} {!busy && <ArrowRight size={18} />}
                         </button>
                     </form>
                 </div>
@@ -3005,7 +3041,7 @@ function ManageStaff({ usersData, addStaffUser, deleteStaffUser, showConfirm }) 
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <input required type="text" placeholder="Nama Lengkap" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full border px-3 py-2 rounded text-sm bg-white text-gray-800" />
                         <input required type="text" placeholder="Username" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} className="w-full border px-3 py-2 rounded text-sm bg-white text-gray-800" />
-                        <input required type="text" placeholder="Password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className="w-full border px-3 py-2 rounded text-sm bg-white text-gray-800" />
+                        <input required type="password" minLength={8} autoComplete="new-password" placeholder="Password (min. 8 karakter)" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className="w-full border px-3 py-2 rounded text-sm bg-white text-gray-800" />
                         <button type="submit" className="w-full bg-blue-600 text-white font-bold py-2 rounded text-sm">Tambah Staff</button>
                     </form>
                 </div>
@@ -3016,7 +3052,7 @@ function ManageStaff({ usersData, addStaffUser, deleteStaffUser, showConfirm }) 
                             <thead className="bg-gray-50 border-b">
                                 <tr>
                                     <th className="px-4 py-3">Nama</th>
-                                    <th className="px-4 py-3">User / Pass</th>
+                                    <th className="px-4 py-3">Username</th>
                                     <th className="px-4 py-3">Aksi</th>
                                 </tr>
                             </thead>
@@ -3024,7 +3060,7 @@ function ManageStaff({ usersData, addStaffUser, deleteStaffUser, showConfirm }) 
                                 {staffList.map(s => (
                                     <tr key={s.id} className="border-b">
                                         <td className="px-4 py-3 font-bold">{s.name}</td>
-                                        <td className="px-4 py-3 text-xs">{s.username} / {s.password}</td>
+                                        <td className="px-4 py-3 text-xs">{s.username}</td>
                                         <td className="px-4 py-3">
                                             <button onClick={() => showConfirm("Apakah Anda yakin ingin menghapus akun staff ini?", () => deleteStaffUser(s.id))} className="text-red-500"><Trash2 size={16} /></button>
                                         </td>
@@ -3039,7 +3075,7 @@ function ManageStaff({ usersData, addStaffUser, deleteStaffUser, showConfirm }) 
                             <div key={s.id} className="bg-white p-3 rounded-lg border flex justify-between items-center shadow-sm">
                                 <div className="space-y-1">
                                     <span className="font-bold text-sm text-gray-800">{s.name}</span>
-                                    <p className="text-[11px] text-gray-500 font-semibold">User: {s.username} | Pass: {s.password}</p>
+                                    <p className="text-[11px] text-gray-500 font-semibold">Username: {s.username}</p>
                                 </div>
                                 <button onClick={() => showConfirm("Apakah Anda yakin ingin menghapus akun staff ini?", () => deleteStaffUser(s.id))} className="text-red-500 p-2 hover:bg-red-50 rounded transition">
                                     <Trash2 size={16} />
