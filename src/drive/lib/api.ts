@@ -19,22 +19,25 @@ export async function listSamples(): Promise<Sample[]> {
   return json.samples as Sample[]
 }
 
-export async function syncDrive(): Promise<{ total: number; baru: number; hilang: number }> {
-  const res = await authFetch('/api/admin/sync', { method: 'POST' })
-  const body = await res.text()
-  let json: { error?: string; total?: number; baru?: number; hilang?: number } = {}
-  try {
-    json = JSON.parse(body)
-  } catch {
-    // Vercel may return a non-JSON error page if the function fails to start.
+export async function syncDrive(onProgress?: (total: number) => void): Promise<{ total: number; baru: number; hilang: number }> {
+  while (true) {
+    const res = await authFetch('/api/admin/sync', { method: 'POST' })
+    const body = await res.text()
+    let json: { error?: string; done?: boolean; total?: number; baru?: number; hilang?: number } = {}
+    try {
+      json = JSON.parse(body)
+    } catch {
+      // Vercel may return a non-JSON error page if the function fails to start.
+    }
+    if (!res.ok) {
+      throw new Error(json.error || `Sinkronisasi gagal (HTTP ${res.status}). Buka Vercel → Logs untuk detail.`)
+    }
+    if (typeof json.total !== 'number' || typeof json.baru !== 'number' || typeof json.hilang !== 'number') {
+      throw new Error('Jawaban server tidak dikenali. Buka Vercel → Logs untuk detail.')
+    }
+    if (json.done) return { total: json.total, baru: json.baru, hilang: json.hilang }
+    onProgress?.(json.total)
   }
-  if (!res.ok) {
-    throw new Error(json.error || `Sinkronisasi gagal (HTTP ${res.status}). Buka Vercel → Logs untuk detail.`)
-  }
-  if (typeof json.total !== 'number' || typeof json.baru !== 'number' || typeof json.hilang !== 'number') {
-    throw new Error('Jawaban server tidak dikenali. Buka Vercel → Logs untuk detail.')
-  }
-  return { total: json.total, baru: json.baru, hilang: json.hilang }
 }
 
 export async function downloadSample(sample: Sample, guru: string, catatan: string) {
@@ -58,3 +61,4 @@ export async function downloadSample(sample: Sample, guru: string, catatan: stri
   a.click()
   URL.revokeObjectURL(url)
 }
+
