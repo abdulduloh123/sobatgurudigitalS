@@ -9,14 +9,20 @@ export function useAuth() {
   const [role, setRole] = useState<Role | null>(null)
 
   useEffect(() => onAuthStateChanged(sampleDriveAuth, (nextUser) => {
-    setUser(nextUser)
+    setUser(nextUser?.isAnonymous ? null : nextUser)
     setRole(null)
   }), [])
 
   useEffect(() => {
     if (!user) return
     let alive = true
-    void getDoc(doc(sampleDriveDb, 'sampleUsers', user.uid)).then((snapshot) => {
+    void user.getIdTokenResult().then(async ({ claims }) => {
+      const claimRole = claims.samplesRole
+      if (claimRole === 'admin' || claimRole === 'cs') {
+        if (alive) setRole(claimRole)
+        return
+      }
+      const snapshot = await getDoc(doc(sampleDriveDb, 'sampleUsers', user.uid))
       if (alive) setRole((snapshot.data()?.role as Role | undefined) ?? 'pending')
     }).catch(() => {
       if (alive) setRole('pending')
@@ -27,3 +33,4 @@ export function useAuth() {
   const loading = user === undefined || (user !== null && role === null)
   return { session: user ?? null, role, loading }
 }
+
