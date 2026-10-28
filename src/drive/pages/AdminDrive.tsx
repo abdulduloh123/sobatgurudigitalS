@@ -83,7 +83,7 @@ export default function AdminDrive() {
   async function sync() {
     setBusy(true); setMsg('')
     try {
-      const r = await syncDrive()
+      const r = await syncDrive((total) => setMsg(`Sinkronisasi berjalan… ${total} file sudah diperiksa.`))
       setMsg(`Sinkron selesai: ${r.total} file di Drive, ${r.baru} baru, ${r.hilang} hilang.`)
       await load()
     } catch (e) {
@@ -194,3 +194,4 @@ export default function AdminDrive() {
     </div>
   )
 }
+
