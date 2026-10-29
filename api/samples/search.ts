@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { requireUser } from '../_lib/clients.js'
+import { QUOTA_MESSAGE, isQuotaError, requireUser } from '../_lib/clients.js'
 import {
   analyzeText, driveClauses, driveSearch, getTexts, loadCatalog, mapLimit, parseQuery, resolveDriveFile,
   type CatalogEntry,
@@ -67,6 +67,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error) {
     console.error('Sample search failed:', error)
     const message = error instanceof Error ? error.message : ''
+    if (isQuotaError(error)) return res.status(503).json({ error: QUOTA_MESSAGE })
     return res.status(500).json({
       error: /DRIVE_ROOT_FOLDER_ID/.test(message) ? message : 'Pencarian gagal. Coba lagi sebentar, atau minta admin memeriksa Vercel Logs.',
     })

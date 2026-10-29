@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
 import { FieldValue, type QueryDocumentSnapshot } from 'firebase-admin/firestore'
-import { firebaseAuth, firestore } from '../_lib/clients.js'
+import { QUOTA_MESSAGE, firebaseAuth, firestore, isQuotaError } from '../_lib/clients.js'
 
 const scrypt = promisify(scryptCallback)
 const APP_ID = process.env.FIREBASE_PROJECT_ID || 'sobatguru-digital'
@@ -117,7 +117,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error) {
     const value = error as { code?: unknown; message?: unknown }
     console.error('Internal login failed:', { code: value?.code, message: value?.message })
-    return res.status(503).json({ error: 'Server belum bisa menyiapkan login. Coba lagi sebentar.' })
+    return res.status(503).json({ error: isQuotaError(error) ? QUOTA_MESSAGE : 'Server belum bisa menyiapkan login. Coba lagi sebentar.' })
   }
 }
 

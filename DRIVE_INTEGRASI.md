@@ -65,6 +65,8 @@ Tab **Log unduhan** menampilkan 500 unduhan terakhir (siapa, file apa, untuk gur
 
 ## Catatan teknis
 
-- Pencarian memakai indeks teks lengkap Google Drive (`fullText contains`). Cuplikan dibuat server dari teks dokumen yang disimpan di Firestore (`sampleTexts`), diperbarui otomatis bila file berubah.
-- Katalog file ada di `sampleFiles`, ringkasannya di `sampleIndex`. Semua data Samples hanya diakses server.
+- Pencarian memakai indeks teks lengkap Google Drive (`fullText contains`). Cuplikan dibuat server dari teks dokumen yang disimpan di Firestore, diperbarui otomatis bila file berubah.
+- Setiap file punya satu dokumen di `sampleFiles` (data file + teks + status baca). `sampleTexts` hanya berisi teks lama yang masih dipakai sampai filenya berubah. Ringkasan katalog ada di `sampleIndex`. Semua data Samples hanya diakses server.
+- Hemat kuota: persiapan pertama ±1,5 tulis per dokumen; **Perbarui pencarian** hanya menulis dokumen yang baru atau berubah (puluhan tulis untuk ribuan file), dan membaca ±1 kali per dokumen.
+- Jika kuota harian Firebase habis, layar menampilkan pesan kuota; tekan tombolnya lagi setelah kuota pulih dan proses lanjut dari titik terakhir.
 - File berukuran sangat besar dapat terkena batas ukuran respons serverless Vercel saat diunduh.

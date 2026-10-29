@@ -1,17 +1,21 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { FieldPath, FieldValue, type DocumentData } from 'firebase-admin/firestore'
-import { drive, firestore, requireUser } from '../../_lib/clients.js'
+import { FieldPath, type DocumentData } from 'firebase-admin/firestore'
+import { QUOTA_MESSAGE, drive, firestore, isQuotaError, requireUser } from '../../_lib/clients.js'
 import {
   FOLDER_MIME, SEARCHABLE_MIMES, catalogShardRef, describeError, extractText, indexMetaRef, indexStateRef,
-  mapLimit, rootFolderId, sampleFiles, sampleTexts, saveText, type CatalogEntry, type FolderCount, type IndexMeta,
+  forgetCatalog, loadCatalog, mapLimit, rootFolderId, sampleFiles, sampleTexts, textFields, type CatalogEntry, type FolderCount,
+  type IndexMeta,
 } from '../../_lib/samples.js'
 
-type Phase = 'legacy' | 'scan' | 'text' | 'cleanup' | 'finalize'
+type Phase = 'legacy' | 'scan' | 'text' | 'finalize'
 type FolderCursor = { folderId: string; path: string; depth: number; pageToken?: string }
 type State = {
+  version: 2
   runId: string
   phase: Phase
   stack: FolderCursor[]
+  // Ids found in Drive during this run; anything else in the catalog was removed from Drive.
+  seen: string[]
   scanned: number
   textDone: number
   textFailed: number
@@ -24,6 +28,9 @@ const TIME_BUDGET_MS = 40_000
 const LEASE_MS = 75_000
 const TEXT_BATCH = 8
 const SHARD_BYTES = 800_000
+// The seen list lives in the state document, which Firestore limits to 1 MiB.
+const MAX_FILES = 20_000
+const META_FIELDS = ['name', 'mimeType', 'path', 'modifiedTime', 'size', 'textStatus', 'textModified', 'needsText']
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!await requireUser(req, res, ['admin'])) return
@@ -36,7 +43,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.json(await status())
     }
     if (action === 'retry') {
-      const failed = await sampleFiles().where('textStatus', '==', 'error').limit(400).get()
+      const failed = await sampleFiles().where('textStatus', '==', 'error').select('textStatus').limit(400).get()
       const batch = firestore.batch()
       for (const entry of failed.docs) batch.update(entry.ref, { needsText: true, textModified: null })
       await batch.commit()
@@ -45,7 +52,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.json(await run())
   } catch (error) {
     console.error('Sample index failed:', error)
-    return res.status(500).json({ error: friendlyError(error) })
+    return res.status(isQuotaError(error) ? 503 : 500).json({ error: friendlyError(error) })
   }
 }
 
@@ -53,14 +60,14 @@ async function status() {
   const [meta, state, failed, pending] = await Promise.all([
     indexMetaRef().get(),
     indexStateRef().get(),
-    sampleFiles().where('textStatus', '==', 'error').limit(50).get(),
+    sampleFiles().where('textStatus', '==', 'error').select('name', 'path', 'textError').limit(50).get(),
     sampleFiles().where('needsText', '==', true).count().get(),
   ])
   const metaData = meta.data() as IndexMeta | undefined
   const stateData = state.data() as State | undefined
   return {
     meta: metaData ? { ...metaData, shards: undefined } : null,
-    running: stateData ? {
+    running: stateData?.version === 2 ? {
       phase: stateData.phase,
       scanned: stateData.scanned,
       textDone: stateData.textDone,
@@ -85,12 +92,16 @@ async function run() {
   // Lease the job so two admin tabs cannot process the same chunk at once.
   const state = await firestore.runTransaction(async (tx) => {
     const snapshot = await tx.get(indexStateRef())
-    const current = snapshot.data() as State | undefined
+    const stored = snapshot.data() as State | undefined
+    // A state from the previous storage format restarts the scan; text already read is kept.
+    const current = stored?.version === 2 ? stored : undefined
     if (current && current.leaseUntil > Date.now()) return null
     const next: State = current ?? {
+      version: 2,
       runId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       phase: 'legacy',
       stack: [{ folderId: rootFolderId(), path: '', depth: 0 }],
+      seen: [],
       scanned: 0,
       textDone: 0,
       textFailed: 0,
@@ -109,7 +120,7 @@ async function run() {
     if (state.phase === 'legacy') {
       // One-time cleanup of the old approval catalog.
       while (timeLeft() > 0) {
-        const old = await firestore.collection('driveSamples').limit(400).get()
+        const old = await firestore.collection('driveSamples').select().limit(400).get()
         if (old.empty) break
         const batch = firestore.batch()
         old.docs.forEach((entry) => batch.delete(entry.ref))
@@ -121,94 +132,36 @@ async function run() {
       }
     }
 
-    while (state.phase === 'scan' && timeLeft() > 0) {
-      const cursor = state.stack[state.stack.length - 1]
-      if (!cursor) { state.phase = 'text'; break }
-      const result = await drive.files.list({
-        q: `'${cursor.folderId}' in parents and trashed = false`,
-        fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, size)',
-        pageSize: 200,
-        pageToken: cursor.pageToken,
-        supportsAllDrives: true,
-        includeItemsFromAllDrives: true,
-      })
-      const items: CatalogEntry[] = []
-      const folders: FolderCursor[] = []
-      for (const file of result.data.files ?? []) {
-        if (!file.id || !file.name) continue
-        if (file.mimeType === FOLDER_MIME) {
-          if (cursor.depth < 10) folders.push({ folderId: file.id, path: cursor.path ? `${cursor.path}/${file.name}` : file.name, depth: cursor.depth + 1 })
-        } else if (file.mimeType && SEARCHABLE_MIMES.includes(file.mimeType)) {
-          items.push({ id: file.id, name: file.name, mimeType: file.mimeType, path: cursor.path, modifiedTime: file.modifiedTime ?? '', size: file.size ? Number(file.size) : 0 })
-        }
-      }
-      const existing = items.length ? await firestore.getAll(...items.map((item) => sampleFiles().doc(item.id))) : []
-      const batch = firestore.batch()
-      items.forEach((item, index) => {
-        const data = existing[index].data()
-        const changed = !data || data.textModified !== item.modifiedTime
-        batch.set(sampleFiles().doc(item.id), {
-          name: item.name,
-          mimeType: item.mimeType,
-          path: item.path,
-          modifiedTime: item.modifiedTime,
-          size: item.size ?? 0,
-          run: state.runId,
-          ...(changed ? { needsText: true, textStatus: data?.textStatus ?? 'pending' } : {}),
-        }, { merge: true })
-      })
-      const stack = state.stack.slice(0, -1)
-      if (result.data.nextPageToken) stack.push({ ...cursor, pageToken: result.data.nextPageToken })
-      stack.push(...folders.reverse())
-      state.stack = stack
-      state.scanned += items.length
-      if (!stack.length) state.phase = 'text'
-      batch.set(indexStateRef(), state)
-      await batch.commit()
-    }
+    if (state.phase === 'scan') await scan(state, timeLeft)
 
     while (state.phase === 'text' && timeLeft() > 0) {
-      const queue = await sampleFiles().where('needsText', '==', true).limit(TEXT_BATCH).get()
-      if (queue.empty) { state.phase = 'cleanup'; break }
-      // Searches may already have read some files; reuse that text instead of downloading again.
-      const cached = await firestore.getAll(...queue.docs.map((doc) => sampleTexts().doc(doc.id)))
+      const queue = await sampleFiles().where('needsText', '==', true).select(...META_FIELDS).limit(TEXT_BATCH).get()
+      if (queue.empty) { state.phase = 'finalize'; break }
+      // Text read before the storage change (or by a search) is reused instead of downloading again.
+      const legacy = await firestore.getAll(...queue.docs.map((doc) => sampleTexts().doc(doc.id)))
+      const updates: { id: string; fields: ReturnType<typeof textFields> }[] = []
       await mapLimit(queue.docs, 4, async (doc) => {
-        const data = doc.data()
-        const entry = toEntry(doc.id, data)
-        const known = cached.find((item) => item.id === doc.id)?.data()
+        const entry = toEntry(doc.id, doc.data())
+        const known = legacy.find((item) => item.id === doc.id)?.data()
         try {
-          let text: string
-          if (known && known.modifiedTime === entry.modifiedTime && !known.error) {
-            text = known.text ?? ''
-          } else {
-            text = await extractText(entry)
-            await saveText(entry, text)
-          }
-          await doc.ref.update({ needsText: false, textStatus: text ? 'ok' : 'empty', textModified: entry.modifiedTime, chars: text.length, textError: FieldValue.delete() })
+          const text = known && known.modifiedTime === entry.modifiedTime && !known.error
+            ? String(known.text ?? '')
+            : await extractText(entry)
+          updates.push({ id: doc.id, fields: textFields(entry, text) })
           state.textDone++
         } catch (error) {
-          const message = describeError(error)
-          await saveText(entry, '', message)
-          await doc.ref.update({ needsText: false, textStatus: 'error', textModified: entry.modifiedTime, textError: message })
+          updates.push({ id: doc.id, fields: textFields(entry, '', describeError(error)) })
           state.textFailed++
         }
       })
-      await save()
-    }
-
-    while (state.phase === 'cleanup' && timeLeft() > 0) {
-      const removed = await sampleFiles().where('run', '!=', state.runId).limit(200).get()
-      if (removed.empty) { state.phase = 'finalize'; break }
+      // Only counters change here, so the state document is saved once at the end of the request.
       const batch = firestore.batch()
-      for (const entry of removed.docs) {
-        batch.delete(entry.ref)
-        batch.delete(sampleTexts().doc(entry.id))
-      }
+      for (const update of updates) batch.set(sampleFiles().doc(update.id), update.fields, { merge: true })
       await batch.commit()
     }
 
     if (state.phase === 'finalize' && timeLeft() > 0) {
-      await finalize()
+      await finalize(new Set(state.seen))
       await indexStateRef().delete()
       return { done: true, ...await status() }
     }
@@ -217,27 +170,90 @@ async function run() {
     const pending = state.phase === 'text' ? (await sampleFiles().where('needsText', '==', true).count().get()).data().count : 0
     return { done: false, phase: state.phase, scanned: state.scanned, textDone: state.textDone, textFailed: state.textFailed, pending }
   } catch (error) {
-    await save({ leaseUntil: 0 }).catch(() => undefined)
+    if (!isQuotaError(error)) await save({ leaseUntil: 0 }).catch(() => undefined)
     throw error
   }
+}
+
+/** Walks the Drive folders and writes only files that are new or changed since the last run. */
+async function scan(state: State, timeLeft: () => number) {
+  // The packed catalog from the last finished run answers "unchanged?" for almost every file in a few reads.
+  forgetCatalog()
+  const { map: catalog } = await loadCatalog()
+  while (state.phase === 'scan' && timeLeft() > 0) {
+    const cursor = state.stack[state.stack.length - 1]
+    if (!cursor) { state.phase = 'text'; break }
+    const result = await drive.files.list({
+      q: `'${cursor.folderId}' in parents and trashed = false`,
+      fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, size)',
+      pageSize: 200,
+      pageToken: cursor.pageToken,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    })
+    const items: CatalogEntry[] = []
+    const folders: FolderCursor[] = []
+    for (const file of result.data.files ?? []) {
+      if (!file.id || !file.name) continue
+      if (file.mimeType === FOLDER_MIME) {
+        if (cursor.depth < 10) folders.push({ folderId: file.id, path: cursor.path ? `${cursor.path}/${file.name}` : file.name, depth: cursor.depth + 1 })
+      } else if (file.mimeType && SEARCHABLE_MIMES.includes(file.mimeType)) {
+        items.push({ id: file.id, name: file.name, mimeType: file.mimeType, path: cursor.path, modifiedTime: file.modifiedTime ?? '', size: file.size ? Number(file.size) : 0 })
+      }
+    }
+
+    const unknown = items.filter((item) => !sameFile(catalog.get(item.id), item))
+    const stored = unknown.length
+      ? await firestore.getAll(...unknown.map((item) => sampleFiles().doc(item.id)), { fieldMask: META_FIELDS })
+      : []
+    const batch = firestore.batch()
+    unknown.forEach((item, index) => {
+      const data = stored[index].data()
+      const meta = { name: item.name, mimeType: item.mimeType, path: item.path, modifiedTime: item.modifiedTime, size: item.size ?? 0 }
+      const textStale = !data || data.textModified !== item.modifiedTime
+      if (textStale && data?.needsText !== true) {
+        batch.set(sampleFiles().doc(item.id), { ...meta, needsText: true, textStatus: data?.textStatus ?? 'pending' }, { merge: true })
+      } else if (!sameFile(data as CatalogEntry | undefined, item)) {
+        batch.set(sampleFiles().doc(item.id), meta, { merge: true })
+      }
+    })
+
+    const stack = state.stack.slice(0, -1)
+    if (result.data.nextPageToken) stack.push({ ...cursor, pageToken: result.data.nextPageToken })
+    stack.push(...folders.reverse())
+    state.stack = stack
+    state.seen.push(...items.map((item) => item.id))
+    state.scanned += items.length
+    if (state.seen.length > MAX_FILES) throw new Error(`Folder sampel berisi lebih dari ${MAX_FILES.toLocaleString('id-ID')} dokumen Word. Hubungi pengembang untuk menaikkan batas ini.`)
+    if (!stack.length) state.phase = 'text'
+    batch.set(indexStateRef(), state)
+    await batch.commit()
+  }
+}
+
+function sameFile(known: Partial<CatalogEntry> | undefined, item: CatalogEntry) {
+  return Boolean(known) && known!.name === item.name && known!.path === item.path
+    && known!.modifiedTime === item.modifiedTime && known!.mimeType === item.mimeType
 }
 
 function toEntry(id: string, data: DocumentData): CatalogEntry {
   return { id, name: data.name ?? '', mimeType: data.mimeType ?? '', path: data.path ?? '', modifiedTime: data.modifiedTime ?? '', size: data.size ?? 0 }
 }
 
-/** Packs the catalog into a few documents so searches can load it with 1–3 reads. */
-async function finalize() {
+/** Removes files no longer in Drive and packs the catalog into a few documents so searches load it in 1–3 reads. */
+async function finalize(seen: Set<string>) {
   const entries: CatalogEntry[] = []
+  const removed: string[] = []
   let failedCount = 0
   let readableCount = 0
   const folderCounts = new Map<string, number>()
   let last: string | undefined
   while (true) {
-    let query = sampleFiles().orderBy(FieldPath.documentId()).limit(1000)
+    let query = sampleFiles().select(...META_FIELDS).orderBy(FieldPath.documentId()).limit(1000)
     if (last) query = query.startAfter(last)
     const page = await query.get()
     for (const doc of page.docs) {
+      if (!seen.has(doc.id)) { removed.push(doc.id); continue }
       const data = doc.data()
       entries.push(toEntry(doc.id, data))
       if (data.textStatus === 'error') failedCount++
@@ -250,6 +266,15 @@ async function finalize() {
     }
     if (page.size < 1000) break
     last = page.docs[page.docs.length - 1].id
+  }
+
+  for (let i = 0; i < removed.length; i += 200) {
+    const batch = firestore.batch()
+    for (const id of removed.slice(i, i + 200)) {
+      batch.delete(sampleFiles().doc(id))
+      batch.delete(sampleTexts().doc(id))
+    }
+    await batch.commit()
   }
 
   const shards: string[] = []
@@ -283,11 +308,13 @@ async function finalize() {
   }
   batch.set(indexMetaRef(), meta)
   await batch.commit()
+  forgetCatalog()
 }
 
 function friendlyError(error: unknown) {
+  if (isQuotaError(error)) return QUOTA_MESSAGE
   const detail = error instanceof Error ? error.message : String(error)
-  if (/DRIVE_ROOT_FOLDER_ID/.test(detail)) return detail
+  if (/DRIVE_ROOT_FOLDER_ID|lebih dari .* dokumen Word/.test(detail)) return detail
   if (/invalid_grant|private key|PEM|DECODER/i.test(detail)) return 'Kunci Firebase server tidak terbaca. Periksa FIREBASE_CLIENT_EMAIL dan FIREBASE_PRIVATE_KEY di Vercel.'
   if (/permission|forbidden|not found|404|403/i.test(detail)) return 'Akun server belum bisa membuka folder Drive. Bagikan folder utama ke FIREBASE_CLIENT_EMAIL sebagai Viewer dan pastikan DRIVE_ROOT_FOLDER_ID benar.'
   return detail || 'Gagal menyiapkan pencarian. Buka Vercel → Logs untuk detail.'

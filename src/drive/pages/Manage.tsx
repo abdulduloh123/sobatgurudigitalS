@@ -8,8 +8,7 @@ const PHASES: Record<NonNullable<RunStep['phase']>, string> = {
   legacy: 'Membersihkan data persetujuan lama',
   scan: 'Memindai folder Google Drive',
   text: 'Membaca isi dokumen',
-  cleanup: 'Membuang file yang sudah dihapus dari Drive',
-  finalize: 'Menyusun katalog pencarian',
+  finalize: 'Membuang file yang sudah dihapus dan menyusun katalog',
 }
 const STALE_DAYS = 3
 

@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { requireUser } from '../_lib/clients.js'
+import { QUOTA_MESSAGE, isQuotaError, requireUser } from '../_lib/clients.js'
 import { analyzeText, getTexts, parseQuery, resolveFileId } from '../_lib/samples.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -30,6 +30,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     })
   } catch (error) {
     console.error('Sample preview failed:', error)
-    return res.status(500).json({ error: 'Gagal membuka pratinjau dokumen.' })
+    return res.status(isQuotaError(error) ? 503 : 500).json({ error: isQuotaError(error) ? QUOTA_MESSAGE : 'Gagal membuka pratinjau dokumen.' })
   }
 }

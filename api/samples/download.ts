@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import type { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import { drive, firestore, requireUser } from '../_lib/clients.js'
+import { QUOTA_MESSAGE, drive, firestore, isQuotaError, requireUser } from '../_lib/clients.js'
 import { WORD_MIME, resolveFileId } from '../_lib/samples.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -34,6 +34,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   } catch (error) {
     console.error('Sample download failed to start:', error)
+    if (isQuotaError(error)) return res.status(503).json({ error: QUOTA_MESSAGE })
     return res.status(500).json({ error: 'Gagal mengambil file dari Google Drive. Coba lagi sebentar.' })
   }
 

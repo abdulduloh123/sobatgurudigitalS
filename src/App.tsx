@@ -101,27 +101,14 @@ useEffect(() => {
         return () => unsubscribe();
     }, []);
 
+    // Data yang dipakai landing page dimuat untuk semua pengunjung.
     useEffect(() => {
         if (!firebaseUser || !db) return;
-
-        const salesRef = collection(db, 'artifacts', appId, 'public', 'data', 'salesData');
-        const unsubscribeSales = onSnapshot(salesRef, (snapshot) => {
-            const fetchedSales = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            fetchedSales.sort((a, b) => new Date(b.date) - new Date(a.date));
-            setSalesData(fetchedSales);
-        }, (error) => console.error("Firestore error:", error));
 
         const catalogRef = collection(db, 'artifacts', appId, 'public', 'data', 'catalogData');
         const unsubscribeCatalog = onSnapshot(catalogRef, (snapshot) => {
             const fetchedCatalog = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setCatalogData(fetchedCatalog);
-        }, (error) => console.error("Firestore error:", error));
-
-        const expensesRef = collection(db, 'artifacts', appId, 'public', 'data', 'expensesData');
-        const unsubscribeExpenses = onSnapshot(expensesRef, (snapshot) => {
-            const fetchedExpenses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            fetchedExpenses.sort((a, b) => new Date(b.date) - new Date(a.date));
-            setExpensesData(fetchedExpenses);
         }, (error) => console.error("Firestore error:", error));
 
         // Listener: previewsData
@@ -130,21 +117,6 @@ useEffect(() => {
             const fetchedPreviews = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setPreviewsData(fetchedPreviews);
         }, (error) => console.error("Previews Firestore error:", error));
-
-        // Listener: payoutsData
-        const payoutsRef = collection(db, 'artifacts', appId, 'public', 'data', 'payoutsData');
-        const unsubscribePayouts = onSnapshot(payoutsRef, (snapshot) => {
-            const fetchedPayouts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            fetchedPayouts.sort((a, b) => new Date(b.payoutDate) - new Date(a.payoutDate));
-            setPayoutsData(fetchedPayouts);
-        }, (error) => console.error("Payouts Firestore error:", error));
-        // Listener Baru: data leads kustomer
-        const leadsRef = collection(db, 'artifacts', appId, 'public', 'data', 'leadsData');
-        const unsubscribeLeads = onSnapshot(leadsRef, (snapshot) => {
-            const fetchedLeads = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            fetchedLeads.sort((a, b) => new Date(b.date) - new Date(a.date));
-            setLeadsData(fetchedLeads);
-        }, (error) => console.error("Leads error:", error));
 
         // Listener Baru: pengaturan favicon aplikasi
         const settingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'settingsData');
@@ -164,15 +136,57 @@ useEffect(() => {
             }
         }, (error) => console.error("Settings error:", error));
         return () => {
-            unsubscribeSales();
             unsubscribeCatalog();
-            unsubscribeExpenses();
             unsubscribePreviews();
-            unsubscribePayouts();
-            unsubscribeLeads();
             unsubscribeSettings();
         };
     }, [firebaseUser]);
+
+    // Data internal dashboard hanya dimuat setelah login, agar setiap pengunjung
+    // landing page tidak ikut membaca seluruh data penjualan dari Firestore.
+    const isSignedIn = Boolean(currentUser);
+    useEffect(() => {
+        if (!firebaseUser || !db || !isSignedIn) return;
+
+        const salesRef = collection(db, 'artifacts', appId, 'public', 'data', 'salesData');
+        const unsubscribeSales = onSnapshot(salesRef, (snapshot) => {
+            const fetchedSales = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            fetchedSales.sort((a, b) => new Date(b.date) - new Date(a.date));
+            setSalesData(fetchedSales);
+        }, (error) => console.error("Firestore error:", error));
+
+        const expensesRef = collection(db, 'artifacts', appId, 'public', 'data', 'expensesData');
+        const unsubscribeExpenses = onSnapshot(expensesRef, (snapshot) => {
+            const fetchedExpenses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            fetchedExpenses.sort((a, b) => new Date(b.date) - new Date(a.date));
+            setExpensesData(fetchedExpenses);
+        }, (error) => console.error("Firestore error:", error));
+
+        // Listener: payoutsData
+        const payoutsRef = collection(db, 'artifacts', appId, 'public', 'data', 'payoutsData');
+        const unsubscribePayouts = onSnapshot(payoutsRef, (snapshot) => {
+            const fetchedPayouts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            fetchedPayouts.sort((a, b) => new Date(b.payoutDate) - new Date(a.payoutDate));
+            setPayoutsData(fetchedPayouts);
+        }, (error) => console.error("Payouts Firestore error:", error));
+        // Listener Baru: data leads kustomer
+        const leadsRef = collection(db, 'artifacts', appId, 'public', 'data', 'leadsData');
+        const unsubscribeLeads = onSnapshot(leadsRef, (snapshot) => {
+            const fetchedLeads = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            fetchedLeads.sort((a, b) => new Date(b.date) - new Date(a.date));
+            setLeadsData(fetchedLeads);
+        }, (error) => console.error("Leads error:", error));
+        return () => {
+            unsubscribeSales();
+            unsubscribeExpenses();
+            unsubscribePayouts();
+            unsubscribeLeads();
+            setSalesData([]);
+            setExpensesData([]);
+            setPayoutsData([]);
+            setLeadsData([]);
+        };
+    }, [firebaseUser, isSignedIn]);
 
     useEffect(() => {
         let alive = true;

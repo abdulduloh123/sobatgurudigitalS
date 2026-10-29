@@ -49,7 +49,7 @@ export interface CatalogMeta {
 export interface IndexStatus {
   meta: CatalogMeta | null
   running: {
-    phase: 'legacy' | 'scan' | 'text' | 'cleanup' | 'finalize'
+    phase: 'legacy' | 'scan' | 'text' | 'finalize'
     scanned: number
     textDone: number
     textFailed: number

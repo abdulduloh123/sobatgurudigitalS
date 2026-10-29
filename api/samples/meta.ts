@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { requireUser } from '../_lib/clients.js'
+import { QUOTA_MESSAGE, isQuotaError, requireUser } from '../_lib/clients.js'
 import { loadCatalog } from '../_lib/samples.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -13,6 +13,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.json({ meta: { fileCount, readableCount, failedCount, folders, indexedAt } })
   } catch (error) {
     console.error('Sample meta read failed:', error)
-    return res.status(500).json({ error: 'Gagal membaca status katalog.' })
+    return res.status(isQuotaError(error) ? 503 : 500).json({ error: isQuotaError(error) ? QUOTA_MESSAGE : 'Gagal membaca status katalog.' })
   }
 }

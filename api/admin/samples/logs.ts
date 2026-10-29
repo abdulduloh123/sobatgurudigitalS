@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { firestore, requireUser } from '../../_lib/clients.js'
+import { QUOTA_MESSAGE, firestore, isQuotaError, requireUser } from '../../_lib/clients.js'
 
 const APP_ID = process.env.FIREBASE_PROJECT_ID || 'sobatguru-digital'
 
@@ -30,6 +30,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     })
   } catch (error) {
     console.error('Download log read failed:', error)
-    return res.status(500).json({ error: 'Gagal memuat log unduhan.' })
+    return res.status(isQuotaError(error) ? 503 : 500).json({ error: isQuotaError(error) ? QUOTA_MESSAGE : 'Gagal memuat log unduhan.' })
   }
 }

@@ -23,6 +23,14 @@ const googleAuth = new google.auth.JWT({
 })
 export const drive = google.drive({ version: 'v3', auth: googleAuth })
 
+export const QUOTA_MESSAGE = 'Kuota harian database Firebase sudah habis. Coba lagi setelah kuota direset (sekitar pukul 14.00 WIB), atau upgrade Firebase ke paket Blaze.'
+
+/** Firestore reports an exhausted daily quota as gRPC code 8 (RESOURCE_EXHAUSTED). */
+export function isQuotaError(error: unknown) {
+  const value = error as { code?: unknown; message?: unknown } | null
+  return value?.code === 8 || value?.code === 'resource-exhausted' || /RESOURCE_EXHAUSTED|quota exceeded/i.test(String(value?.message ?? ''))
+}
+
 /** Verifies Firebase login and looks up the server-managed sample role. */
 export async function requireUser(
   req: VercelRequest,
@@ -67,7 +75,7 @@ export async function requireUser(
     } catch (error) {
       const value = error as { code?: unknown; message?: unknown }
       console.error('Internal Samples account check failed:', { code: value?.code, message: value?.message })
-      res.status(503).json({ error: 'Server gagal memeriksa akun internal. Coba lagi sebentar.' })
+      res.status(503).json({ error: isQuotaError(error) ? QUOTA_MESSAGE : 'Server gagal memeriksa akun internal. Coba lagi sebentar.' })
       return null
     }
   }
@@ -87,7 +95,7 @@ export async function requireUser(
       code: value?.code,
       message: value?.message,
     })
-    res.status(503).json({ error: 'Server gagal memeriksa peran Samples. Admin perlu memeriksa Firebase project dan akses Firestore di Vercel Logs.' })
+    res.status(503).json({ error: isQuotaError(error) ? QUOTA_MESSAGE : 'Server gagal memeriksa peran Samples. Admin perlu memeriksa Firebase project dan akses Firestore di Vercel Logs.' })
     return null
   }
 }

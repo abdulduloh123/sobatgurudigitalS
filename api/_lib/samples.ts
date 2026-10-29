@@ -1,5 +1,5 @@
 import WordExtractor from 'word-extractor'
-import { drive, firestore } from './clients.js'
+import { drive, firestore, isQuotaError } from './clients.js'
 
 export const WORD_MIME = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -34,6 +34,11 @@ export function rootFolderId() {
 
 /** Short-lived cache so each search costs one meta read instead of re-reading the whole catalog. */
 let catalogCache: { meta: IndexMeta | null; map: Map<string, CatalogEntry>; checkedAt: number } | null = null
+
+/** Drops the cached catalog so the next read sees a freshly packed one. */
+export function forgetCatalog() {
+  catalogCache = null
+}
 
 export async function loadCatalog() {
   const now = Date.now()
@@ -157,33 +162,62 @@ export function describeError(error: unknown) {
   return message.slice(0, 300)
 }
 
-export async function saveText(entry: CatalogEntry, text: string, error?: string) {
-  await sampleTexts().doc(entry.id).set({
+/** Fields that store a file's text together with its read status, so reading a file costs one write. */
+export function textFields(entry: CatalogEntry, text: string, error?: string) {
+  return {
     text,
-    modifiedTime: entry.modifiedTime,
     chars: text.length,
-    error: error ?? null,
-    updatedAt: new Date().toISOString(),
-  })
+    textIn: 'file',
+    textModified: entry.modifiedTime,
+    textStatus: error ? 'error' : text ? 'ok' : 'empty',
+    textError: error ?? null,
+    needsText: false,
+  }
 }
 
-/** Reads cached text, extracting (and caching) any file that is new or changed since it was read. */
+export async function saveText(entry: CatalogEntry, text: string, error?: string) {
+  await sampleFiles().doc(entry.id).set({
+    name: entry.name,
+    mimeType: entry.mimeType,
+    path: entry.path,
+    modifiedTime: entry.modifiedTime,
+    size: entry.size ?? 0,
+    ...textFields(entry, text, error),
+  }, { merge: true })
+}
+
+/**
+ * Reads cached text, extracting (and caching) any file that is new or changed since it was read.
+ * Text read before the storage change lives in sampleTexts and is still used while the file is unchanged.
+ */
 export async function getTexts(entries: CatalogEntry[], concurrency = 4) {
   const result = new Map<string, string>()
   if (!entries.length) return result
-  const snapshots = await firestore.getAll(...entries.map((entry) => sampleTexts().doc(entry.id)))
+  const snapshots = await firestore.getAll(...entries.map((entry) => sampleFiles().doc(entry.id)))
+  const legacy: CatalogEntry[] = []
   const stale: CatalogEntry[] = []
   entries.forEach((entry, index) => {
     const data = snapshots[index].data()
-    if (data && data.modifiedTime === entry.modifiedTime) result.set(entry.id, data.text ?? '')
+    const fresh = data && data.textModified === entry.modifiedTime
+    if (fresh && data.textIn === 'file') result.set(entry.id, data.text ?? '')
+    else if (fresh) legacy.push(entry)
     else stale.push(entry)
   })
+  if (legacy.length) {
+    const old = await firestore.getAll(...legacy.map((entry) => sampleTexts().doc(entry.id)))
+    legacy.forEach((entry, index) => {
+      const data = old[index].data()
+      if (data && data.modifiedTime === entry.modifiedTime) result.set(entry.id, data.text ?? '')
+      else stale.push(entry)
+    })
+  }
   await mapLimit(stale, concurrency, async (entry) => {
     try {
       const text = await extractText(entry)
       result.set(entry.id, text)
       await saveText(entry, text)
     } catch (error) {
+      if (isQuotaError(error)) throw error
       console.error('Sample text extraction failed:', entry.id, error)
       result.set(entry.id, '')
       await saveText(entry, '', describeError(error)).catch(() => undefined)
