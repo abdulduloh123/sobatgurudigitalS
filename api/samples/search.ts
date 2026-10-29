@@ -6,7 +6,6 @@ import {
 } from '../_lib/samples.js'
 
 const PAGE_SIZE = 12
-const TIER_ORDER = { frasa: 0, semua: 1, sebagian: 2, judul: 3 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Gunakan GET.' })
@@ -28,8 +27,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const seen = new Set([...phraseHits, ...allHits].map((file) => file.id))
     const anyHits = clauses.any && seen.size < 8 ? await driveSearch(clauses.any) : []
 
-    const ordered = [...phraseHits, ...allHits, ...anyHits].filter((file, index, list) =>
-      file.id && list.findIndex((other) => other.id === file.id) === index)
+    // Preserve the strongest Drive clause that returned each file, without an O(n²) scan.
+    const unique = new Map<string, (typeof phraseHits)[number]>()
+    for (const file of [...phraseHits, ...allHits, ...anyHits]) {
+      if (file.id && !unique.has(file.id)) unique.set(file.id, file)
+    }
+    const ordered = [...unique.values()]
 
     const { map } = await loadCatalog()
     const resolved: (CatalogEntry | null)[] = new Array(ordered.length).fill(null)
@@ -41,21 +44,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const page = inScope.slice(offset, offset + PAGE_SIZE)
     const texts = await getTexts(page)
-    const results = page.map((entry) => {
+    const ranked = page.map((entry) => {
       const text = texts.get(entry.id) ?? ''
       const analysis = analyzeText(text, entry.name, query, 2)
+      const { score, ...publicAnalysis } = analysis
       return {
-        id: entry.id,
-        name: entry.name,
-        mimeType: entry.mimeType,
-        path: entry.path,
-        modifiedTime: entry.modifiedTime,
-        readable: text.length > 0,
-        ...analysis,
+        score,
+        result: {
+          id: entry.id,
+          name: entry.name,
+          mimeType: entry.mimeType,
+          path: entry.path,
+          modifiedTime: entry.modifiedTime,
+          readable: text.length > 0,
+          ...publicAnalysis,
+        },
       }
     })
-    // Within a page, show exact phrase matches before looser ones.
-    results.sort((a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier])
+    // Rank the selected page by body relevance, then use name for deterministic ties.
+    // This intentionally avoids reading every candidate's text on every search.
+    ranked.sort((a, b) => b.score - a.score || a.result.name.localeCompare(b.result.name))
+    const results = ranked.map(({ result }) => result)
 
     return res.json({
       results,
