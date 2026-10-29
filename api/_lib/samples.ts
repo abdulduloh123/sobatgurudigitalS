@@ -261,23 +261,42 @@ export function driveClauses(query: ParsedQuery) {
   }
 }
 
+/**
+ * Fetch a bounded number of Drive candidates per clause.
+ * Drive does not rank by our document-content relevance, but following a few
+ * nextPageToken pages prevents silently ignoring the first page boundary.
+ * The cap deliberately bounds latency and Drive API work per user query.
+ */
+const DRIVE_PAGE_SIZE = 100
+const MAX_DRIVE_RESULTS_PER_CLAUSE = 200
+
 export async function driveSearch(clause: string) {
-  const result = await drive.files.list({
-    q: `${clause} and ${mimeClause}`,
-    fields: 'files(id, name, mimeType, modifiedTime, parents, size)',
-    pageSize: 100,
-    corpora: 'allDrives',
-    includeItemsFromAllDrives: true,
-    supportsAllDrives: true,
-  })
-  return result.data.files ?? []
+  const files: DriveFile[] = []
+  let pageToken: string | undefined
+
+  do {
+    const result = await drive.files.list({
+      q: `${clause} and ${mimeClause}`,
+      fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, parents, size, trashed)',
+      pageSize: Math.min(DRIVE_PAGE_SIZE, MAX_DRIVE_RESULTS_PER_CLAUSE - files.length),
+      pageToken,
+      corpora: 'allDrives',
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true,
+    })
+
+    files.push(...(result.data.files ?? []))
+    pageToken = result.data.nextPageToken ?? undefined
+  } while (pageToken && files.length < MAX_DRIVE_RESULTS_PER_CLAUSE)
+
+  return files.slice(0, MAX_DRIVE_RESULTS_PER_CLAUSE)
 }
 
 // ---------- Snippets ----------
 
 export type Segment = { text: string; hit?: true }
 export type MatchTier = 'frasa' | 'semua' | 'sebagian' | 'judul'
-export type Analysis = { tier: MatchTier; occurrences: number; passages: Segment[][] }
+export type Analysis = { tier: MatchTier; occurrences: number; passages: Segment[][]; score: number }
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const BEFORE = 90
@@ -333,11 +352,15 @@ function passage(text: string, from: number, to: number, patterns: ReturnType<ty
   return segments
 }
 
-/** Finds where the query appears in a document and returns highlighted passages. */
+/** Finds where the query appears in a document and returns highlighted passages.
+ * `score` is an internal ranking signal for results already selected for a page;
+ * a dedicated full-text index is needed to rank the entire candidate set globally.
+ */
 export function analyzeText(text: string, name: string, query: ParsedQuery, maxPassages: number): Analysis {
   const patterns = buildPatterns(query)
   const passages: Segment[][] = []
 
+  // A phrase tier is awarded only when the phrase is actually present in the body.
   if (patterns.phrase) {
     const matches = [...text.matchAll(patterns.phrase)].slice(0, 500)
     if (matches.length) {
@@ -348,18 +371,26 @@ export function analyzeText(text: string, name: string, query: ParsedQuery, maxP
         passages.push(passage(text, match.index, match.index + match[0].length, patterns))
         lastEnd = match.index + match[0].length + AFTER + BEFORE
       }
-      return { tier: 'frasa', occurrences: matches.length, passages }
+      return {
+        tier: 'frasa',
+        occurrences: matches.length,
+        passages,
+        score: 1000 + Math.min(matches.length, 100) * 0.1,
+      }
     }
   }
 
   const hits = patterns.terms ? [...text.matchAll(patterns.terms)].slice(0, 3000) : []
-  const found = new Set(hits.map((hit) => hit[0].toLowerCase()))
-  const allTerms = query.terms.every((term) => [...found].some((value) => value.startsWith(term)))
+  const matchedTerms = query.terms.filter((term) =>
+    hits.some((hit) => hit[0].toLowerCase().startsWith(term)),
+  )
+  const allTerms = matchedTerms.length === query.terms.length
   const lowerName = name.toLowerCase()
   const nameHasPhrase = query.words.length > 1 && lowerName.includes(query.words.join(' '))
 
   // Pick the windows that contain the most distinct query terms.
   const used: [number, number][] = []
+  let bestWindowScore = 0
   while (passages.length < maxPassages && hits.length) {
     let best: { from: number; to: number; score: number } | null = null
     for (let i = 0; i < hits.length; i++) {
@@ -371,14 +402,25 @@ export function analyzeText(text: string, name: string, query: ParsedQuery, maxP
         distinct.add(hits[j][0].toLowerCase())
         to = hits[j].index + hits[j][0].length
       }
-      const score = distinct.size * 100 - (to - from) / 10
-      if (!best || score > best.score) best = { from, to, score }
+      const windowScore = distinct.size * 100 - (to - from) / 10
+      if (!best || windowScore > best.score) best = { from, to, score: windowScore }
     }
     if (!best) break
+    bestWindowScore = Math.max(bestWindowScore, best.score)
     used.push([best.from - BEFORE - AFTER, best.to + AFTER])
     passages.push(passage(text, best.from, best.to, patterns))
   }
 
-  const tier: MatchTier = nameHasPhrase ? 'frasa' : hits.length && allTerms ? 'semua' : hits.length ? 'sebagian' : 'judul'
-  return { tier, occurrences: hits.length, passages }
+  const tier: MatchTier = hits.length && allTerms ? 'semua' : hits.length ? 'sebagian' : 'judul'
+  const coverage = matchedTerms.length / Math.max(query.terms.length, 1)
+  const tierBase = tier === 'semua' ? 700 : tier === 'sebagian' ? 400 : 100
+  const titleBonus = tier === 'judul' && nameHasPhrase ? 20 : 0
+  // Body-term coverage and proximity influence ordering within the same tier.
+  const score = tierBase
+    + coverage * 60
+    + Math.min(hits.length, 50) * 0.1
+    + Math.max(0, Math.min(bestWindowScore, 300)) / 10
+    + titleBonus
+
+  return { tier, occurrences: hits.length, passages, score }
 }
