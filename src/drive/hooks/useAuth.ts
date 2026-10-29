@@ -7,6 +7,7 @@ import type { Role } from '../types'
 export function useAuth() {
   const [user, setUser] = useState<User | null | undefined>(undefined)
   const [role, setRole] = useState<Role | null>(null)
+  const [name, setName] = useState('')
 
   useEffect(() => onAuthStateChanged(sampleDriveAuth, (nextUser) => {
     setUser(nextUser?.isAnonymous ? null : nextUser)
@@ -17,6 +18,7 @@ export function useAuth() {
     if (!user) return
     let alive = true
     void user.getIdTokenResult().then(async ({ claims }) => {
+      if (alive) setName(typeof claims.internalName === 'string' ? claims.internalName : user.email ?? '')
       const claimRole = claims.samplesRole
       if (claimRole === 'admin' || claimRole === 'cs') {
         if (alive) setRole(claimRole)
@@ -31,6 +33,5 @@ export function useAuth() {
   }, [user])
 
   const loading = user === undefined || (user !== null && role === null)
-  return { session: user ?? null, role, loading }
+  return { session: user ?? null, role, name, loading }
 }
-

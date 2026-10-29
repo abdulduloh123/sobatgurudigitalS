@@ -1,18 +1,71 @@
 export type Role = 'admin' | 'cs' | 'pending'
 
-export interface Sample {
+export type Segment = { text: string; hit?: true }
+export type MatchTier = 'frasa' | 'semua' | 'sebagian' | 'judul'
+
+export interface SearchResult {
   id: string
-  file_name: string
-  mime_type: string
-  drive_path: string | null
-  jenjang: string | null
-  kelas: string | null
-  mapel: string | null
-  versi_buku: string | null
-  jenis_dokumen: string | null
-  topik: string | null
-  kata_kunci: string[]
-  paket_produk: string | null
-  boleh_dikirim: boolean
-  is_missing: boolean
+  name: string
+  mimeType: string
+  path: string
+  modifiedTime: string
+  readable: boolean
+  tier: MatchTier
+  occurrences: number
+  passages: Segment[][]
+}
+
+export interface SearchResponse {
+  results: SearchResult[]
+  total: number
+  offset: number
+  hasMore: boolean
+  widened: boolean
+}
+
+export interface Preview {
+  id: string
+  name: string
+  mimeType: string
+  path: string
+  modifiedTime: string
+  readable: boolean
+  chars: number
+  intro: string
+  occurrences: number
+  passages: Segment[][]
+}
+
+export interface FolderCount { path: string; count: number }
+
+export interface CatalogMeta {
+  fileCount: number
+  readableCount: number
+  failedCount: number
+  folders: FolderCount[]
+  indexedAt: string
+}
+
+export interface IndexStatus {
+  meta: CatalogMeta | null
+  running: {
+    phase: 'legacy' | 'scan' | 'text' | 'cleanup' | 'finalize'
+    scanned: number
+    textDone: number
+    textFailed: number
+    startedAt: string
+    active: boolean
+  } | null
+  pending: number
+  failed: { id: string; name: string; path: string; error: string }[]
+}
+
+export interface DownloadLog {
+  id: string
+  fileName: string
+  path: string | null
+  userName: string
+  guru: string | null
+  catatan: string | null
+  createdAt: string | null
 }

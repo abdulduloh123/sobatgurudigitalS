@@ -1,5 +1,5 @@
 import { sampleDriveAuth } from '../../lib/firebase'
-import type { Sample } from '../types'
+import type { CatalogMeta, DownloadLog, IndexStatus, Preview, SearchResponse } from '../types'
 
 async function authFetch(path: string, init: RequestInit = {}) {
   const token = await sampleDriveAuth.currentUser?.getIdToken()
@@ -12,69 +12,89 @@ async function authFetch(path: string, init: RequestInit = {}) {
   })
 }
 
-export async function listSamples(): Promise<Sample[]> {
-  const res = await authFetch('/api/samples/list')
-  const json = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(json.error ?? 'Gagal memuat katalog sampel.')
-  return json.samples as Sample[]
-}
-
-export async function listAdminSamples(): Promise<Sample[]> {
-  const res = await authFetch('/api/admin/samples/list')
-  const json = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(json.error ?? 'Gagal memuat repositori sampel.')
-  return json.samples as Sample[]
-}
-
-export async function updateAdminSample(id: string, changes: Partial<Sample>): Promise<void> {
-  const res = await authFetch('/api/admin/samples/update', {
-    method: 'POST',
-    body: JSON.stringify({ id, changes }),
-  })
-  const json = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(json.error ?? 'Gagal menyimpan perubahan sampel.')
-}
-
-export async function syncDrive(onProgress?: (total: number) => void): Promise<{ total: number; baru: number; hilang: number }> {
-  while (true) {
-    const res = await authFetch('/api/admin/sync', { method: 'POST' })
-    const body = await res.text()
-    let json: { error?: string; done?: boolean; total?: number; baru?: number; hilang?: number } = {}
-    try {
-      json = JSON.parse(body)
-    } catch {
-      // Vercel may return a non-JSON error page if the function fails to start.
-    }
-    if (!res.ok) {
-      throw new Error(json.error || `Sinkronisasi gagal (HTTP ${res.status}). Buka Vercel → Logs untuk detail.`)
-    }
-    if (typeof json.total !== 'number' || typeof json.baru !== 'number' || typeof json.hilang !== 'number') {
-      throw new Error('Jawaban server tidak dikenali. Buka Vercel → Logs untuk detail.')
-    }
-    if (json.done) return { total: json.total, baru: json.baru, hilang: json.hilang }
-    onProgress?.(json.total)
+async function readJson<T>(res: Response, fallback: string): Promise<T> {
+  const text = await res.text()
+  let json: Record<string, unknown> = {}
+  try {
+    json = JSON.parse(text)
+  } catch {
+    // Vercel may return a non-JSON error page if the function fails to start or times out.
   }
+  if (!res.ok) throw new Error(typeof json.error === 'string' ? json.error : `${fallback} (HTTP ${res.status}).`)
+  return json as T
 }
 
-export async function downloadSample(sample: Sample, guru: string, catatan: string) {
+export async function searchSamples(q: string, folder: string, offset: number, signal?: AbortSignal) {
+  const params = new URLSearchParams({ q, offset: String(offset) })
+  if (folder) params.set('folder', folder)
+  const res = await authFetch(`/api/samples/search?${params}`, { signal })
+  return readJson<SearchResponse>(res, 'Pencarian gagal')
+}
+
+export async function previewSample(id: string, q: string) {
+  const res = await authFetch(`/api/samples/preview?${new URLSearchParams({ id, q })}`)
+  return readJson<Preview>(res, 'Gagal membuka pratinjau')
+}
+
+export async function getCatalogMeta() {
+  const res = await authFetch('/api/samples/meta')
+  return (await readJson<{ meta: CatalogMeta | null }>(res, 'Gagal membaca status katalog')).meta
+}
+
+export async function downloadSample(file: { id: string; name: string }, guru: string, catatan: string) {
   const res = await authFetch('/api/samples/download', {
     method: 'POST',
-    body: JSON.stringify({ sampleId: sample.id, guru, catatan }),
+    body: JSON.stringify({ id: file.id, guru, catatan }),
   })
-  if (!res.ok) {
-    const json = await res.json().catch(() => ({}))
-    throw new Error(json.error ?? 'Gagal mengunduh.')
-  }
+  if (!res.ok) await readJson(res, 'Gagal mengunduh')
   const blob = await res.blob()
   const cd = res.headers.get('Content-Disposition') ?? ''
   const m = /filename\*=UTF-8''([^;]+)/.exec(cd)
-  const filename = m ? decodeURIComponent(m[1]) : sample.file_name
+  const filename = m ? decodeURIComponent(m[1]) : file.name
 
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = filename
+  document.body.appendChild(a)
   a.click()
-  URL.revokeObjectURL(url)
+  a.remove()
+  // Some browsers cancel the download if the URL is revoked immediately.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
+export async function getIndexStatus() {
+  return readJson<IndexStatus>(await authFetch('/api/admin/samples/prepare'), 'Gagal membaca status')
+}
+
+export type RunStep = {
+  done: boolean
+  busy?: boolean
+  phase?: NonNullable<IndexStatus['running']>['phase']
+  scanned?: number
+  textDone?: number
+  textFailed?: number
+  pending?: number
+}
+
+/** Keeps calling the chunked index job until it reports completion. */
+export async function runIndex(onStep: (step: RunStep) => void, shouldStop: () => boolean) {
+  while (!shouldStop()) {
+    const res = await authFetch('/api/admin/samples/prepare', { method: 'POST', body: JSON.stringify({ action: 'run' }) })
+    const step = await readJson<RunStep>(res, 'Gagal menyiapkan pencarian')
+    onStep(step)
+    if (step.done) return true
+    if (step.busy) await new Promise((resolve) => setTimeout(resolve, 4000))
+  }
+  return false
+}
+
+export async function indexAction(action: 'reset' | 'retry') {
+  const res = await authFetch('/api/admin/samples/prepare', { method: 'POST', body: JSON.stringify({ action }) })
+  return readJson<IndexStatus & { retried?: number }>(res, 'Gagal menjalankan perintah')
+}
+
+export async function listDownloadLogs() {
+  const res = await authFetch('/api/admin/samples/logs')
+  return (await readJson<{ logs: DownloadLog[] }>(res, 'Gagal memuat log')).logs
+}

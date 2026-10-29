@@ -5,8 +5,8 @@ import App from './App.tsx'
 import WaRedirect from './features/marketing/WaRedirect'
 import { MetaPixelProvider } from './features/marketing/MetaPixel'
 
-// The Drive module needs its own Supabase configuration. Load it only on its
-// dedicated route so a missing Drive setup cannot break the existing site.
+// Load the Samples module only on its own route so it does not slow down the
+// landing page or dashboard.
 const DriveApp = lazy(() => import('./drive/App'))
 const isDriveApp = location.pathname.startsWith('/samples')
 

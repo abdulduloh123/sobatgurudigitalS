@@ -1,12 +1,6 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function sampleRoleIs(role) {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/sampleUsers/$(request.auth.uid))
-        && get(/databases/$(database)/documents/sampleUsers/$(request.auth.uid)).data.role == role;
-    }
-
     // Staff credentials are read and changed only by the authenticated server.
     // The server migrates legacy passwords to hashes and removes password fields.
     match /artifacts/{appId}/public/data/usersData/{userId} {
@@ -48,17 +42,8 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Admin manages the private catalog. CS receives only a filtered response
-    // from the backend, without Google Drive file IDs.
-    match /driveSamples/{sampleId} {
-      allow read: if sampleRoleIs('admin');
-      allow create, update, delete: if sampleRoleIs('admin');
-    }
-
-    match /driveDownloadLogs/{logId} {
-      allow read: if sampleRoleIs('admin');
-      allow write: if false;
-    }
+    // Samples data (sampleFiles, sampleTexts, sampleIndex, driveDownloadLogs) is
+    // read and written only by the server, so browsers get no rule for it.
   }
 }
 

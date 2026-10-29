@@ -28,7 +28,7 @@ export async function requireUser(
   req: VercelRequest,
   res: VercelResponse,
   roles: string[],
-): Promise<{ id: string; role: string } | null> {
+): Promise<{ id: string; role: string; name: string } | null> {
   const token = req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1]
   if (!token) {
     res.status(401).json({ error: 'Silakan login terlebih dahulu.' })
@@ -62,7 +62,8 @@ export async function requireUser(
         res.status(403).json({ error: 'Akun internal ini sudah tidak aktif. Hubungi admin.' })
         return null
       }
-      return { id: decoded.uid, role: claimedRole }
+      const name = typeof decoded.internalName === 'string' ? decoded.internalName : ''
+      return { id: decoded.uid, role: claimedRole, name }
     } catch (error) {
       const value = error as { code?: unknown; message?: unknown }
       console.error('Internal Samples account check failed:', { code: value?.code, message: value?.message })
@@ -79,7 +80,7 @@ export async function requireUser(
       res.status(403).json({ error: 'Akun ini belum diberi peran Samples. Minta admin mengaktifkan peran admin atau cs.' })
       return null
     }
-    return { id: decoded.uid, role }
+    return { id: decoded.uid, role, name: typeof decoded.email === 'string' ? decoded.email : '' }
   } catch (error) {
     const value = error as { code?: unknown; message?: unknown }
     console.error('Sample role lookup failed:', {
