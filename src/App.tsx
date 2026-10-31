@@ -16,6 +16,8 @@ import AdsPerformance from './features/marketing/AdsPerformance';
 import BusinessPulse from './features/marketing/BusinessPulse';
 import { SALE_SOURCES, AD_COST_CATEGORY } from './features/marketing/adsReport';
 import { useAdExpenses } from './features/marketing/useAdExpenses';
+import CommissionBalance, { LedgerList } from './features/marketing/CommissionBalance';
+import { COMMISSION_START, staffLedger } from './features/marketing/commissionLedger';
 import AdminAuthGate from './features/marketing/AdminAuthGate';
 import { MetaPixelSettings as GlobalMetaPixelSettings } from './features/marketing/MetaPixel';
 import { useMetaTracking, MetaLandingPage, MetaPixelSettings, TrafficDashboard, ManageLeadsDashboard as ManageLeadsMeta, createTrackedLead, trackWhatsApp } from './metaSuite';
@@ -367,6 +369,22 @@ useEffect(() => {
         }
     };
 
+    const payCommissionBalance = async (staffName, amount, note) => {
+        try {
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'payoutsData'), {
+                staffName,
+                amount,
+                note,
+                ledger: true,
+                payoutDate: new Date().toLocaleDateString('en-CA')
+            });
+            showAlert(`Pencairan ${staffName} sebesar Rp ${amount.toLocaleString('id-ID')} dicatat.`, "Sukses", "success");
+        } catch (error) {
+            showAlert("Gagal mencatat pencairan!", "Error", "error");
+            throw error;
+        }
+    };
+
     const payStaffCommission = async (staffName, startDate, endDate, totalAmount, salesToUpdate) => {
         if (salesToUpdate.length === 0) {
             showAlert("Tidak ada komisi belum dibayar pada periode tersebut!", "Peringatan", "warning");
@@ -449,6 +467,7 @@ useEffect(() => {
                     payoutsData={payoutsData}
                     updatePreview={updatePreview}
                     payStaffCommission={payStaffCommission}
+                    payCommissionBalance={payCommissionBalance}
                     showAlert={showAlert}
                     showConfirm={showConfirm}
                     leadsData={leadsData}
@@ -1083,7 +1102,7 @@ function Dashboard({
     usersData, addStaffUser, deleteStaffUser, catalogData,
     addProduct, updateProduct, deleteProduct, expensesData,
     addExpense, updateExpense, deleteExpense, previewsData,
-    payoutsData, updatePreview, payStaffCommission, showAlert, showConfirm, leadsData, appSettings, db, appId, writeActivityLog, unreadLeadsCount, metaCfg, metaLps
+    payoutsData, updatePreview, payStaffCommission, payCommissionBalance, showAlert, showConfirm, leadsData, appSettings, db, appId, writeActivityLog, unreadLeadsCount, metaCfg, metaLps
 }) {
     const [activeTab, setActiveTab] = useState(user.role === 'staff' ? 'input' : 'overview');
     const { adExpenses, adExpensesError } = useAdExpenses(auth, user.role === 'admin');
@@ -1214,6 +1233,7 @@ function Dashboard({
                             payoutsData={payoutsData}
                             usersData={usersData}
                             payStaffCommission={payStaffCommission}
+                            payCommissionBalance={payCommissionBalance}
                             showAlert={showAlert}
                             showConfirm={showConfirm}
                         />
@@ -2755,7 +2775,7 @@ function Leaderboard({ salesData }) {
     );
 }
 
-function CommissionReport({ salesData, payoutsData, usersData, payStaffCommission, showAlert, showConfirm }) {
+function CommissionReport({ salesData, payoutsData, usersData, payStaffCommission, payCommissionBalance, showAlert, showConfirm }) {
     const today = new Date();
     const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
     const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
@@ -2862,6 +2882,11 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
     };
 
     const executePayment = () => {
+        // From the start date the balance below is the only way to pay, so nothing is paid twice.
+        if (new Date().toLocaleDateString('en-CA') >= COMMISSION_START) {
+            showAlert("Pencairan kini lewat bagian Saldo Komisi di halaman ini.", "Peringatan", "warning");
+            return;
+        }
         if (!calcResult || calcResult.total === 0) {
             showAlert("Nominal pembayaran harus lebih besar dari Rp 0!", "Peringatan", "warning");
             return;
@@ -2883,6 +2908,8 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
                 <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight text-blue-950">Gaji & Komisi Sales</h1>
                 <p className="text-gray-500 text-sm mt-1">Rekap performa omzet dan rincian pelunasan gaji/bonus komisi staff pendidik.</p>
             </div>
+
+            <CommissionBalance sales={salesData} payouts={payoutsData} onPay={payCommissionBalance} />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 h-fit animate-in">
@@ -3356,25 +3383,10 @@ function StaffCommissions({ staffName, salesData, payoutsData }) {
     const myPayouts = payoutsData.filter(p => p.staffName === staffName);
 
     const totalPaid = myPayouts.reduce((acc, curr) => acc + curr.amount, 0);
-    const unpaidSales = mySales.filter(s => s.paymentStatus !== 'paid');
-    
-    // Perbaikan utama pada baris di bawah ini (menggunakan curr.amount)
-    const unpaidCommissionAmount = unpaidSales.reduce((acc, curr) => acc + (curr.amount * 0.10), 0);
-
-    const dailyUnpaidSales = {};
-    unpaidSales.forEach(sale => {
-        if (!dailyUnpaidSales[sale.date]) dailyUnpaidSales[sale.date] = 0;
-        dailyUnpaidSales[sale.date] += sale.amount;
-    });
-
-    let unpaidBonusAmount = 0;
-    Object.values(dailyUnpaidSales).forEach(amount => {
-        if (amount >= 1000000) {
-            unpaidBonusAmount += 50000 * Math.floor(amount / 1000000);
-        }
-    });
-
-    const totalUnpaid = unpaidCommissionAmount + unpaidBonusAmount;
+    // Sales from the start date on appear in the balance history instead.
+    const unpaidSales = mySales.filter(s => s.paymentStatus !== 'paid' && s.date < COMMISSION_START);
+    const ledger = staffLedger(staffName, salesData, payoutsData);
+    const totalUnpaid = Math.round(ledger.balance);
 
     return (
         <div className="space-y-6 animate-in fade-in pt-4 md:pt-0">
@@ -3390,12 +3402,12 @@ function StaffCommissions({ staffName, salesData, payoutsData }) {
                         <h3 className="text-2xl font-black text-gray-855">Rp {totalUnpaid.toLocaleString('id-ID')}</h3>
                         <div className="text-[11px] text-gray-500 font-medium space-y-0.5">
                             <div className="flex justify-between gap-4">
-                                <span>Komisi Dasar (10%):</span>
-                                <span className="font-bold text-gray-750">Rp {unpaidCommissionAmount.toLocaleString('id-ID')}</span>
+                                <span>Saldo awal:</span>
+                                <span className="font-bold text-gray-750">Rp {Math.round(ledger.opening).toLocaleString('id-ID')}</span>
                             </div>
                             <div className="flex justify-between gap-4">
-                                <span>Bonus Harian:</span>
-                                <span className="font-bold text-gray-750">Rp {unpaidBonusAmount.toLocaleString('id-ID')}</span>
+                                <span>Komisi dan bonus baru:</span>
+                                <span className="font-bold text-gray-750">Rp {Math.round(ledger.earned).toLocaleString('id-ID')}</span>
                             </div>
                         </div>
                     </div>
@@ -3414,6 +3426,11 @@ function StaffCommissions({ staffName, salesData, payoutsData }) {
                     <div className="w-14 h-14 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center shadow-inner"><CheckCircle size={28} /></div>
                 </div>
             </div>
+
+            <section className="rounded-2xl border bg-white p-5 shadow-sm">
+                <h2 className="mb-2 font-bold text-gray-800">Riwayat Saldo Komisi</h2>
+                <LedgerList ledger={ledger} />
+            </section>
 
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 space-y-4">
                 <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
@@ -3440,7 +3457,7 @@ function StaffCommissions({ staffName, salesData, payoutsData }) {
                                 myPayouts.map((pay, i) => (
                                     <tr key={i} className="border-b hover:bg-gray-50/50">
                                         <td className="px-4 py-4 font-semibold text-gray-800">{pay.payoutDate}</td>
-                                        <td className="px-4 py-4 text-gray-600">{pay.startDate} s/d {pay.endDate}</td>
+                                        <td className="px-4 py-4 text-gray-600">{pay.ledger ? (pay.note || 'Pencairan saldo') : `${pay.startDate} s/d ${pay.endDate}`}</td>
                                         <td className="px-4 py-4 text-right font-bold text-green-600">Rp {pay.amount.toLocaleString('id-ID')}</td>
                                         <td className="px-4 py-4 text-center">
                                             <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-bold bg-green-50 text-green-700">Telah Dibayar</span>
@@ -3466,7 +3483,7 @@ function StaffCommissions({ staffName, salesData, payoutsData }) {
                                         <span className="text-right text-gray-800 font-bold">{pay.payoutDate}</span>
 
                                         <span>Periode:</span>
-                                        <span className="text-right text-gray-800">{pay.startDate} s/d {pay.endDate}</span>
+                                        <span className="text-right text-gray-800">{pay.ledger ? (pay.note || 'Pencairan saldo') : `${pay.startDate} s/d ${pay.endDate}`}</span>
 
                                         <span className="border-t pt-1 font-bold text-gray-800">Jumlah Cair:</span>
                                         <span className="text-right border-t pt-1 font-black text-green-600">Rp {pay.amount.toLocaleString('id-ID')}</span>

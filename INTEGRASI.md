@@ -53,6 +53,7 @@ Tidak butuh Firebase Blaze. Semua berjalan lewat `api/meta.ts` di Vercel.
 - Admin membuka **Performa Iklan** lalu menekan **Hubungkan Meta**. Biaya iklan diperbarui saat tab dibuka, paling sering tiap 6 jam.
 - Webhook prospek: `https://www.mitragurudigitalindonesia.my.id/api/meta/lead-webhook`, objek Page, field `leadgen`.
 - Overview Bisnis menampilkan biaya, chat, ROAS, status Pixel, dan peringatan. Mulai 1 November 2026 (`AD_COST_START`) biaya Meta otomatis masuk Total Pengeluaran dan arus kas sebagai kategori Iklan Meta, jadi tidak dicatat manual lagi.
+- Saldo komisi berlaku mulai 1 November 2026 (`COMMISSION_START`): hak komisi dikurangi pencairan bertanda `ledger`. Saldo awal dihitung dari komisi lama yang belum dibayar, dan tidak ada data lama yang ditulis ulang.
 - Token Meta tersimpan di `metaConnection/main`, dan biaya harian di `adsDaily`. Keduanya hanya diakses server.
 
 ## 6. Pakai
