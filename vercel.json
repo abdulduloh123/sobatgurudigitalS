@@ -1,7 +1,23 @@
 {
   "functions": {
-    "api/samples/*.ts": { "maxDuration": 60 },
-    "api/admin/samples/*.ts": { "maxDuration": 60 }
+    "api/samples/*.ts": {
+      "maxDuration": 60
+    },
+    "api/admin/samples/*.ts": {
+      "maxDuration": 60
+    },
+    "api/meta.ts": {
+      "maxDuration": 60
+    }
   },
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    {
+      "source": "/api/meta/:action",
+      "destination": "/api/meta?action=:action"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
 }

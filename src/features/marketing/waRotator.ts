@@ -3,7 +3,7 @@ import { db } from "../../lib/firebase";
 
 export interface WaNumber { n: string; on: boolean }
 export interface WaGroup {
-  mode: "rr" | "rand"; pixel: string; event: string; msg: string;
+  mode: "rr" | "rand"; pixel: string; event: string; msg: string; noMeta?: boolean;
   numbers: WaNumber[]; counter: number; total: number; hits: Record<string, number>;
 }
 

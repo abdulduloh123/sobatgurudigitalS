@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { listGroups, normPhone, removeGroup, resetStats, saveGroup, slugify, validPhone, type WaGroup, type WaNumber } from "./waRotator";
 
 type Row = WaGroup & { slug: string };
-type Form = { mode: WaGroup["mode"]; pixel: string; event: string; msg: string; numbers: WaNumber[] };
-const blank = (): Form => ({ mode: "rr", pixel: "", event: "Lead", msg: "", numbers: [{ n: "", on: true }, { n: "", on: true }] });
+type Form = { mode: WaGroup["mode"]; pixel: string; event: string; msg: string; noMeta: boolean; numbers: WaNumber[] };
+const blank = (): Form => ({ mode: "rr", pixel: "", event: "Lead", msg: "", noMeta: false, numbers: [{ n: "", on: true }, { n: "", on: true }] });
 const inp = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500";
 const btn = "rounded-lg px-3 py-1.5 text-sm font-semibold border";
 
@@ -27,7 +27,7 @@ export default function WaRotatorAdmin() {
     if (!s) return setMsg("Isi nama link.");
     if (!editing && rows.some((r) => r.slug === s)) return setMsg("Nama link sudah dipakai.");
     if (!numbers.length) return setMsg("Isi minimal satu nomor yang valid.");
-    const data: Partial<WaGroup> = { mode: f.mode, pixel: f.pixel.replace(/\D/g, ""), event: f.event.trim() || "Lead", msg: f.msg.trim(), numbers };
+    const data: Partial<WaGroup> = { mode: f.mode, pixel: f.pixel.replace(/\D/g, ""), event: f.event.trim() || "Lead", msg: f.msg.trim(), noMeta: f.noMeta, numbers };
     if (!editing) Object.assign(data, { counter: 0, total: 0, hits: {} });
     try { await saveGroup(s, data); reset(); await load(); setMsg("Tersimpan."); }
     catch { setMsg("Gagal menyimpan. Pastikan Anda login admin Firebase dan rules sudah di-deploy."); }
@@ -50,7 +50,7 @@ export default function WaRotatorAdmin() {
                 </div>
                 <div className="flex flex-wrap items-start gap-2">
                   <button className={btn} onClick={() => navigator.clipboard.writeText(url).then(() => setMsg("Link disalin."))}>Salin</button>
-                  <button className={btn} onClick={() => { setEditing(r.slug); setSlug(r.slug); setF({ mode: r.mode, pixel: r.pixel || "", event: r.event, msg: r.msg, numbers: r.numbers }); }}>Edit</button>
+                  <button className={btn} onClick={() => { setEditing(r.slug); setSlug(r.slug); setF({ mode: r.mode, pixel: r.pixel || "", event: r.event, msg: r.msg, noMeta: Boolean(r.noMeta), numbers: r.numbers }); }}>Edit</button>
                   <button className={btn} onClick={async () => { if (confirm(`Reset statistik ${r.slug}?`)) { await resetStats(r.slug); await load(); } }}>Reset stat</button>
                   <button className={`${btn} border-red-400 text-red-600`} onClick={async () => { if (confirm(`Hapus ${r.slug}? Iklan yang memakai link ini akan berhenti bekerja.`)) { await removeGroup(r.slug); await load(); } }}>Hapus</button>
                 </div>
@@ -82,6 +82,10 @@ export default function WaRotatorAdmin() {
         </label>
         <label className="block text-sm font-semibold">Pesan otomatis (opsional)
           <input className={`${inp} mt-1`} value={f.msg} onChange={(e) => setF({ ...f, msg: e.target.value })} placeholder="Halo kak, saya mau order modul ajar" />
+        </label>
+        <label className="flex items-center gap-2 text-sm font-semibold">
+          <input type="checkbox" checked={f.noMeta} onChange={(e) => setF({ ...f, noMeta: e.target.checked })} />
+          Jangan kirim ke Meta (untuk link TikTok atau non-iklan)
         </label>
         <p className="text-sm font-semibold">Nomor WhatsApp</p>
         {f.numbers.map((x, i) => (

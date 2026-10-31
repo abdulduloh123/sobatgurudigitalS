@@ -12,6 +12,8 @@ import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, setDoc, writeBatch } from 'firebase/firestore';
 import WaRotatorAdmin from './features/marketing/WaRotatorAdmin';
+import AdsPerformance from './features/marketing/AdsPerformance';
+import { SALE_SOURCES } from './features/marketing/adsReport';
 import AdminAuthGate from './features/marketing/AdminAuthGate';
 import { MetaPixelSettings as GlobalMetaPixelSettings } from './features/marketing/MetaPixel';
 import { useMetaTracking, MetaLandingPage, MetaPixelSettings, TrafficDashboard, ManageLeadsDashboard as ManageLeadsMeta, createTrackedLead, trackWhatsApp } from './metaSuite';
@@ -1139,6 +1141,7 @@ function Dashboard({
     active={activeTab === 'manage_leads'} 
     onClick={() => { setActiveTab('manage_leads'); setIsSidebarOpen(false); }} 
 />
+                            <SidebarBtn icon={<BarChart3 />} label="Performa Iklan" active={activeTab === 'ads_performance'} onClick={() => { setActiveTab('ads_performance'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Filter />} label="Meta Ads & Pixel" active={activeTab === 'meta_settings'} onClick={() => { setActiveTab('meta_settings'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<RefreshCw />} label="WA Rotator" active={activeTab === 'wa_rotator'} onClick={() => { setActiveTab('wa_rotator'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Eye />} label="Meta Pixel (Global)" active={activeTab === 'global_pixel'} onClick={() => { setActiveTab('global_pixel'); setIsSidebarOpen(false); }} />
@@ -1220,6 +1223,9 @@ function Dashboard({
                     {user.role === 'admin' && activeTab === 'manage_staff' && <ManageStaff usersData={usersData} addStaffUser={addStaffUser} deleteStaffUser={deleteStaffUser} showConfirm={showConfirm} />}
                     {activeTab === 'manage_leads' && (
     <ManageLeadsMeta leadsData={leadsData} showAlert={showAlert} db={db} appId={appId} user={user} appSettings={appSettings} />
+                    )}
+                    {user.role === 'admin' && activeTab === 'ads_performance' && (
+                        <AdsPerformance auth={auth} sales={salesData} leads={leadsData} />
                     )}
                     {user.role === 'admin' && activeTab === 'meta_settings' && (
                         <MetaPixelSettings db={db} appId={appId} cfg={metaCfg} lps={metaLps || []} showAlert={showAlert} showConfirm={showConfirm} />
@@ -3107,6 +3113,7 @@ function ManageStaff({ usersData, addStaffUser, deleteStaffUser, showConfirm }) 
 // Overhauled Custom Multi-Dropdown & Negotiable Automated Pricing Form for WhatsApp Closing Flow
 function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityLog, appSettings, leadsData = [], db, appId, username }) {
     const [leadId, setLeadId] = useState('');
+    const [saleSource, setSaleSource] = useState('');
     const [form, setForm] = useState({
         date: new Date().toISOString().split('T')[0],
         customer: '',
@@ -3181,7 +3188,7 @@ function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityL
             notes: form.notes
         };
 
-        addSale({ ...payloadClosingan, leadId: leadId || null, staffName: userName });
+        addSale({ ...payloadClosingan, leadId: leadId || null, source: leadId ? null : saleSource || null, staffName: userName });
         if (leadId && db) {
             try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leadsData', leadId), { status: 'konversi', saleAmount: Number(form.amount), convertedAt: new Date().toISOString(), convertedBy: username || userName }); }
             catch (err) { console.error('Gagal menautkan closing ke lead', err); }
@@ -3192,6 +3199,7 @@ function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityL
 
         setForm({ date: new Date().toISOString().split('T')[0], customer: '', amount: '', notes: '' });
         setItems([{ id: Date.now(), jenjang: 'SD - Kelas 1', mapel: 'Matematika', customText: '' }]);
+        setSaleSource('');
         setTab('my_sales');
     };
 
@@ -3221,6 +3229,13 @@ function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityL
                         {leadsData.filter(l => l.status !== 'konversi' && (!l.ref || l.ref === username)).map(l => <option key={l.id} value={l.id}>{l.name} · {l.phone}{l.campaign ? ` · ${l.campaign}` : ''}</option>)}
                     </select>
                 </div>
+                {!leadId && <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">Sumber penjualan (opsional)</label>
+                    <select value={saleSource} onChange={e => setSaleSource(e.target.value)} className="w-full border px-3 py-2 rounded-xl bg-white text-sm text-gray-855">
+                        <option value="">— Tidak diketahui —</option>
+                        {SALE_SOURCES.map(item => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                </div>}
                 {/* AREA SELEKSI DAFTAR ITEM DILAKUKAN SECARA MULTI-BARIS */}
                 <div className="space-y-3 bg-gray-50 p-4 rounded-xl border border-gray-200">
                     <div className="flex justify-between items-center border-b pb-2">

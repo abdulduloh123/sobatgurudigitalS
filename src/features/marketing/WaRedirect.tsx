@@ -14,7 +14,7 @@ export default function WaRedirect({ slug }: { slug?: string }) {
       try {
         const [r, meta] = await Promise.all([pickNumber(s), getMetaSettings()]);
         if (!r) return setSt({ text: "Link tidak ditemukan atau belum ada nomor aktif." });
-        const ids = [r.group.pixel, meta.enabled ? meta.pixelId : ""].filter(Boolean);
+        const ids = r.group.noMeta ? [] : [r.group.pixel, meta.enabled ? meta.pixelId : ""].filter(Boolean);
         ids.forEach(initPixel);
         const t1 = Date.now();
         if (ids.length) { pageView(); track(r.group.event || "Lead", { content_name: s }); }

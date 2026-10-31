@@ -45,6 +45,15 @@ root.render(
 3. Console > Firestore > Rules: tambahkan isi `firestore.rules` (ganti email admin) lalu Publish.
 4. Dashboard admin harus login lewat Firebase Auth dengan email tadi agar bisa menyimpan.
 
+## Performa Iklan (Meta di Vercel)
+Tidak butuh Firebase Blaze. Semua berjalan lewat `api/meta.ts` di Vercel.
+
+- Variabel Vercel: `META_APP_ID`, `META_APP_SECRET`, `META_AD_ACCOUNT_ID`, `META_VERIFY_TOKEN`.
+  Opsional: `META_LOGIN_CONFIG_ID` (kalau Facebook Login for Business memakai konfigurasi), `META_PAGE_ID`, `META_REDIRECT_URI`.
+- Admin membuka **Performa Iklan** lalu menekan **Hubungkan Meta**. Biaya iklan diperbarui saat tab dibuka, paling sering tiap 6 jam.
+- Webhook prospek: `https://www.mitragurudigitalindonesia.my.id/api/meta/lead-webhook`, objek Page, field `leadgen`.
+- Token Meta tersimpan di `metaConnection/main`, dan biaya harian di `adsDaily`. Keduanya hanya diakses server.
+
 ## 6. Pakai
 - Menu **Meta Pixel**: tempel kode pixel dari Events Manager (atau ketik ID), aktifkan, simpan.
 - Menu **WA Rotator**: buat link, salin `https://DOMAIN-ANDA/wa/nama-link`, pasang di iklan.
