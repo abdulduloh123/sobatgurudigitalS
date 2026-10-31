@@ -142,7 +142,7 @@ export default function BusinessPulse({ auth, sales, leads, from, to }: { auth: 
         </div>
       </div>
 
-      <p className="text-xs text-gray-500">Biaya Meta di panel ini belum masuk Total Pengeluaran di bawah. Pengeluaran iklan tetap dicatat manual sebagai Marketing.</p>
+      <p className="text-xs text-gray-500">Mulai 1 November 2026 biaya Meta otomatis masuk Total Pengeluaran sebagai Iklan Meta, jadi tidak perlu dicatat manual lagi.</p>
     </section>
   );
 }

@@ -14,7 +14,8 @@ import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc
 import WaRotatorAdmin from './features/marketing/WaRotatorAdmin';
 import AdsPerformance from './features/marketing/AdsPerformance';
 import BusinessPulse from './features/marketing/BusinessPulse';
-import { SALE_SOURCES } from './features/marketing/adsReport';
+import { SALE_SOURCES, AD_COST_CATEGORY } from './features/marketing/adsReport';
+import { useAdExpenses } from './features/marketing/useAdExpenses';
 import AdminAuthGate from './features/marketing/AdminAuthGate';
 import { MetaPixelSettings as GlobalMetaPixelSettings } from './features/marketing/MetaPixel';
 import { useMetaTracking, MetaLandingPage, MetaPixelSettings, TrafficDashboard, ManageLeadsDashboard as ManageLeadsMeta, createTrackedLead, trackWhatsApp } from './metaSuite';
@@ -1085,6 +1086,7 @@ function Dashboard({
     payoutsData, updatePreview, payStaffCommission, showAlert, showConfirm, leadsData, appSettings, db, appId, writeActivityLog, unreadLeadsCount, metaCfg, metaLps
 }) {
     const [activeTab, setActiveTab] = useState(user.role === 'staff' ? 'input' : 'overview');
+    const { adExpenses, adExpensesError } = useAdExpenses(auth, user.role === 'admin');
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
     const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
@@ -1184,8 +1186,11 @@ function Dashboard({
             {/* 3. MAIN CONTENT VIEW */}
             <div className="flex-grow overflow-y-auto pt-16 md:pt-0">
                 <main className="p-4 md:p-8">
+                    {user.role === 'admin' && adExpensesError && ['overview', 'all_sales'].includes(activeTab) && (
+                        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">Biaya Meta gagal dimuat, jadi laba bisa terlihat terlalu tinggi: {adExpensesError}</div>
+                    )}
                     {user.role === 'admin' && activeTab === 'overview' && (
-                        <AdminOverview salesData={salesData} expensesData={expensesData} leadsData={leadsData} />
+                        <AdminOverview salesData={salesData} expensesData={[...expensesData, ...adExpenses]} leadsData={leadsData} />
                     )}
                     {user.role === 'admin' && activeTab === 'all_sales' && (
                         <SalesTable
@@ -1196,6 +1201,7 @@ function Dashboard({
                             updateSale={updateSale}
                             deleteSale={deleteSale}
                             expensesData={expensesData}
+                            adExpenses={adExpenses}
                             addExpense={addExpense}
                             updateExpense={updateExpense}
                             deleteExpense={deleteExpense}
@@ -1414,6 +1420,7 @@ function AdminOverview({ salesData, expensesData, leadsData = [] }) {
         'Komisi & Gaji': totalCommissionExpenses,
         'Operasional': 0,
         'Marketing': 0,
+        [AD_COST_CATEGORY]: 0,
         'Lain-lain': 0
     };
     filteredExpenses.forEach(exp => {
@@ -1731,6 +1738,7 @@ function SalesTable({
     updateSale,
     deleteSale,
     expensesData = [],
+    adExpenses = [],
     addExpense,
     updateExpense,
     deleteExpense,
@@ -1857,14 +1865,17 @@ function SalesTable({
         return commission + monthBonus;
     };
 
+    // The expense list below stays manual-only, so automatic rows cannot be edited or deleted there.
+    const cashExpenses = [...expensesData, ...adExpenses];
+
     const allActiveDates = Array.from(new Set([
         ...data.map(s => s.date),
-        ...expensesData.map(e => e.date)
+        ...cashExpenses.map(e => e.date)
     ])).sort((a, b) => new Date(b) - new Date(a));
 
     const dailyCashFlow = allActiveDates.map(date => {
         const revenue = data.filter(s => s.date === date).reduce((acc, curr) => acc + curr.amount, 0);
-        const opExpenses = expensesData.filter(e => e.date === date).reduce((acc, curr) => acc + curr.amount, 0);
+        const opExpenses = cashExpenses.filter(e => e.date === date).reduce((acc, curr) => acc + curr.amount, 0);
         const commissionExpenses = getCommissionExpensesForDate(date);
         const totalExp = opExpenses + commissionExpenses;
         const profit = revenue - totalExp;
@@ -1873,12 +1884,12 @@ function SalesTable({
 
     const allActiveMonths = Array.from(new Set([
         ...data.map(s => s.date.slice(0, 7)),
-        ...expensesData.map(e => e.date.slice(0, 7))
+        ...cashExpenses.map(e => e.date.slice(0, 7))
     ])).sort((a, b) => new Date(b + '-02') - new Date(a + '-02'));
 
     const monthlyCashFlow = allActiveMonths.map(month => {
         const revenue = data.filter(s => s.date.startsWith(month)).reduce((acc, curr) => acc + curr.amount, 0);
-        const opExpenses = expensesData.filter(e => e.date.startsWith(month)).reduce((acc, curr) => acc + curr.amount, 0);
+        const opExpenses = cashExpenses.filter(e => e.date.startsWith(month)).reduce((acc, curr) => acc + curr.amount, 0);
         const commissionExpenses = getCommissionExpensesForMonth(month);
         const totalExp = opExpenses + commissionExpenses;
         const profit = revenue - totalExp;
@@ -2285,7 +2296,7 @@ function SalesTable({
                                     <textarea
                                         required
                                         rows={2}
-                                        placeholder="Contoh: Biaya iklan Facebook Ads"
+                                        placeholder="Contoh: Jasa desain konten (biaya iklan Meta sudah otomatis)"
                                         value={newExpenseForm.notes}
                                         onChange={e => setNewExpenseForm({ ...newExpenseForm, notes: e.target.value })}
                                         className="w-full border px-3 py-2 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-gray-800"

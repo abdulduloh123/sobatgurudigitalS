@@ -2,6 +2,19 @@ export type Sale = { id: string; date: string; amount: number; staffName?: strin
 export type Lead = { id: string; date?: string; source?: string | null; campaign?: string | null };
 export type AdDay = { date: string; campaigns: { id: string; name: string; spend: number; impressions: number; clicks: number; chats?: number }[] };
 
+// Meta spend counts as an expense from this day on; earlier ad costs stay as the manual Marketing records.
+export const AD_COST_START = '2026-11-01';
+export const AD_COST_CATEGORY = 'Iklan Meta';
+
+export type AdExpense = { id: string; date: string; amount: number; category: string; notes: string };
+
+export function adExpenseRows(days: AdDay[]): AdExpense[] {
+    return days
+        .filter((day) => day.date >= AD_COST_START)
+        .map((day) => ({ id: `meta_${day.date}`, date: day.date, amount: day.campaigns.reduce((total, item) => total + item.spend, 0), category: AD_COST_CATEGORY, notes: 'Otomatis dari Meta' }))
+        .filter((row) => row.amount > 0);
+}
+
 export const SALE_SOURCES = ['Meta', 'TikTok', 'WA langsung', 'Referensi', 'Pelanggan lama', 'Lainnya'];
 const UNKNOWN = 'Belum diisi';
 const NO_CAMPAIGN = 'Kampanye tidak diketahui';
