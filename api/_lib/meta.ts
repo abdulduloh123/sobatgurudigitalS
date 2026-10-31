@@ -31,6 +31,7 @@ export type Connection = {
   expiresAt: string | null
   lastSyncAt: string | null
   syncVersion?: number
+  syncAccounts?: string
   lastError: string | null
   needsReconnect: boolean
 }
@@ -42,7 +43,8 @@ function env(name: 'META_APP_ID' | 'META_APP_SECRET' | 'META_AD_ACCOUNT_ID') {
 }
 
 export const appSecret = () => env('META_APP_SECRET')
-const adAccount = () => `act_${env('META_AD_ACCOUNT_ID').replace(/^act_/, '')}`
+// Several ids may be listed with commas, for a business that moved to a new ad account.
+const adAccounts = () => env('META_AD_ACCOUNT_ID').split(',').map((id) => `act_${id.trim().replace(/^act_/, '')}`).filter((id) => id !== 'act_')
 
 /** Errors from Meta, kept apart so an expired token can ask the admin to reconnect. */
 export class MetaError extends Error {
@@ -139,9 +141,9 @@ const isoDay = (time: number) => new Date(time).toISOString().slice(0, 10)
 
 type InsightRow = { date_start: string; campaign_id: string; campaign_name: string; spend?: string; impressions?: string; clicks?: string; actions?: { action_type: string; value: string }[] }
 
-async function fetchInsights(token: string, since: string, until: string) {
+async function fetchInsights(token: string, account: string, since: string, until: string) {
   const rows: InsightRow[] = []
-  let url: string | undefined = `${GRAPH}/${adAccount()}/insights?${new URLSearchParams({
+  let url: string | undefined = `${GRAPH}/${account}/insights?${new URLSearchParams({
     level: 'campaign',
     time_increment: '1',
     fields: 'campaign_id,campaign_name,spend,impressions,clicks,actions',
@@ -159,13 +161,23 @@ async function fetchInsights(token: string, since: string, until: string) {
 
 /** Stores spend per day, one document a day, so a month of report costs about 30 reads. */
 export async function syncAds(connection: Connection, force = false) {
-  const last = connection.lastSyncAt && connection.syncVersion === SYNC_VERSION ? new Date(connection.lastSyncAt).getTime() : 0
+  const accounts = adAccounts()
+  const accountKey = accounts.join(',')
+  // Adding an account or a stored field refills the earlier days once.
+  const current = connection.syncVersion === SYNC_VERSION && connection.syncAccounts === accountKey
+  const last = connection.lastSyncAt && current ? new Date(connection.lastSyncAt).getTime() : 0
   if (!force && Date.now() - last < FRESH_MS) return { synced: false, lastSyncAt: connection.lastSyncAt }
 
   const days = last ? LATER_SYNC_DAYS : FIRST_SYNC_DAYS
   const dates = Array.from({ length: days }, (_, index) => isoDay(Date.now() - index * 86_400_000))
   try {
-    const rows = await fetchInsights(connection.userToken, dates[dates.length - 1], dates[0])
+    const results = await Promise.allSettled(accounts.map((account) => fetchInsights(connection.userToken, account, dates[dates.length - 1], dates[0])))
+    const failed = results.flatMap((result, index) => result.status === 'rejected' ? [{ account: accounts[index], reason: result.reason as unknown }] : [])
+    const rows = results.flatMap((result) => result.status === 'fulfilled' ? result.value : [])
+    // One unreadable old account should not hide the current one, but the report must say so.
+    const expired = failed.find((item) => item.reason instanceof MetaError && item.reason.expired)
+    if (expired || failed.length === accounts.length) throw (expired ?? failed[0]).reason
+    const partialError = failed.length ? `Akun iklan ${failed.map((item) => item.account.replace('act_', '')).join(', ')} tidak bisa dibaca, jadi biayanya belum masuk.` : null
     const byDate = new Map<string, AdCampaign[]>(dates.map((date) => [date, []]))
     for (const row of rows) {
       byDate.get(row.date_start)?.push({
@@ -183,7 +195,7 @@ export async function syncAds(connection: Connection, force = false) {
     // Newest first, so CS sees the campaigns running now at the top of the closing form.
     const names = [...new Set(dates.flatMap((date) => (byDate.get(date) ?? []).filter((item) => item.spend > 0).map((item) => item.name)))]
     batch.set(campaignNames(), { names })
-    batch.update(connectionRef(), { lastSyncAt, syncVersion: SYNC_VERSION, lastError: null, needsReconnect: false })
+    batch.update(connectionRef(), { lastSyncAt, syncVersion: SYNC_VERSION, syncAccounts: accountKey, lastError: partialError, needsReconnect: false })
     await batch.commit()
     return { synced: true, lastSyncAt }
   } catch (error) {
@@ -204,7 +216,7 @@ export async function readCampaignNames() {
 }
 
 export async function readPixels(connection: Connection) {
-  const result = await graph<{ data?: { id: string; name: string; last_fired_time?: string }[] }>(`${GRAPH}/${adAccount()}/adspixels?${new URLSearchParams({ fields: 'id,name,last_fired_time', access_token: connection.userToken })}`)
+  const result = await graph<{ data?: { id: string; name: string; last_fired_time?: string }[] }>(`${GRAPH}/${adAccounts()[0]}/adspixels?${new URLSearchParams({ fields: 'id,name,last_fired_time', access_token: connection.userToken })}`)
   return result.data ?? []
 }
 

@@ -1,15 +1,96 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Staff credentials are read and changed only by the authenticated server.
-    // The server migrates legacy passwords to hashes and removes password fields.
+    function sampleRoleIs(role) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/sampleUsers/$(request.auth.uid))
+        && get(/databases/$(database)/documents/sampleUsers/$(request.auth.uid)).data.role == role;
+    }
+
+    // Every visitor gets an anonymous session, so "signed in" does not mean staff.
+    function signedIn() {
+      return request.auth != null;
+    }
+    function internalRole() {
+      return request.auth.token.get('internalRole', '');
+    }
+    // WA Rotator and Meta Pixel sign the admin in by email in the same session.
+    function isAdmin() {
+      return signedIn() && (internalRole() == 'admin' || request.auth.token.get('email', '') == 'GANTI_EMAIL_ADMIN@gmail.com');
+    }
+    function isInternal() {
+      return signedIn() && (internalRole() == 'staff' || isAdmin());
+    }
+
+    // Prevent browser clients from reading or changing internal login records.
     match /artifacts/{appId}/public/data/usersData/{userId} {
       allow read, write: if false;
     }
 
-    // Existing dashboard data remains available to signed-in app sessions.
-    match /artifacts/{appId}/public/data/{collectionName}/{document=**} {
-      allow read, write: if request.auth != null && collectionName != 'usersData';
+    // Shown to visitors on the public website; only an admin can change them.
+    match /artifacts/{appId}/public/data/catalogData/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /artifacts/{appId}/public/data/previewsData/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /artifacts/{appId}/public/data/settingsData/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /artifacts/{appId}/public/data/metaConfig/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /artifacts/{appId}/public/data/metaLandingPages/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // Visitors may only submit a new lead; phone numbers stay private to staff.
+    match /artifacts/{appId}/public/data/leadsData/{id} {
+      allow create: if signedIn()
+        && request.resource.data.size() <= 40
+        && request.resource.data.get('status', '') == 'belum_dichat'
+        && !('saleAmount' in request.resource.data);
+      allow read, update: if isInternal();
+      allow delete: if isAdmin();
+    }
+
+    // Visitors open one session and may only append events to it.
+    match /artifacts/{appId}/public/data/trafficData/{id} {
+      allow create: if signedIn();
+      allow update: if signedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['events']);
+      allow read: if isInternal();
+      allow delete: if isAdmin();
+    }
+
+    // Failed logins are recorded before a staff session exists.
+    match /artifacts/{appId}/public/data/activityLogs/{id} {
+      allow create: if signedIn();
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /artifacts/{appId}/public/data/salesData/{id} {
+      allow read, create: if isInternal();
+      allow update, delete: if isAdmin();
+    }
+    match /artifacts/{appId}/public/data/payoutsData/{id} {
+      allow read: if isInternal();
+      allow write: if isAdmin();
+    }
+    match /artifacts/{appId}/public/data/driveFilesData/{id} {
+      allow read: if isInternal();
+      allow write: if isAdmin();
+    }
+    match /artifacts/{appId}/public/data/downloadLogs/{id} {
+      allow create: if isInternal();
+      allow read, update, delete: if isAdmin();
+    }
+    match /artifacts/{appId}/public/data/expensesData/{id} {
+      allow read, write: if isAdmin();
     }
 
     // Public landing pages are readable by visitors; changes require admin login.
@@ -42,8 +123,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Samples data (sampleFiles, sampleTexts, sampleIndex, driveDownloadLogs) is
-    // read and written only by the server, so browsers get no rule for it.
+    // Admin manages the private catalog. CS receives only a filtered response
+    // from the backend, without Google Drive file IDs.
+    match /driveSamples/{sampleId} {
+      allow read: if sampleRoleIs('admin');
+      allow create, update, delete: if sampleRoleIs('admin');
+    }
+    match /driveDownloadLogs/{logId} {
+      allow read: if sampleRoleIs('admin');
+      allow write: if false;
+    }
+
+    // Samples data (sampleFiles, sampleTexts, sampleIndex) and Meta data (metaConnection,
+    // adsDaily) are read and written only by the server, so browsers get no rule for them.
   }
 }
-

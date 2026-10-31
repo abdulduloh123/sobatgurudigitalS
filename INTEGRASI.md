@@ -48,7 +48,7 @@ root.render(
 ## Performa Iklan (Meta di Vercel)
 Tidak butuh Firebase Blaze. Semua berjalan lewat `api/meta.ts` di Vercel.
 
-- Variabel Vercel: `META_APP_ID`, `META_APP_SECRET`, `META_AD_ACCOUNT_ID`, `META_VERIFY_TOKEN`.
+- Variabel Vercel: `META_APP_ID`, `META_APP_SECRET`, `META_AD_ACCOUNT_ID`, `META_VERIFY_TOKEN`. Untuk beberapa akun iklan, tulis ID di `META_AD_ACCOUNT_ID` dipisah koma, akun utama lebih dulu.
   Opsional: `META_LOGIN_CONFIG_ID` (kalau Facebook Login for Business memakai konfigurasi), `META_PAGE_ID`, `META_REDIRECT_URI`.
 - Admin membuka **Performa Iklan** lalu menekan **Hubungkan Meta**. Biaya iklan diperbarui saat tab dibuka, paling sering tiap 6 jam.
 - Webhook prospek: `https://www.mitragurudigitalindonesia.my.id/api/meta/lead-webhook`, objek Page, field `leadgen`.

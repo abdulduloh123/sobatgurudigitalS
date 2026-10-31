@@ -107,10 +107,13 @@ export default function AdsPerformance({ auth, sales, leads }: { auth: Auth; sal
           <h1 className="text-2xl font-black text-gray-800">Performa Iklan</h1>
           <p className="text-sm text-gray-500">Biaya iklan Meta digabung dengan lead dan closing. Laporan Finansial tidak berubah.</p>
         </div>
-        {status?.connected && !status.needsReconnect && <button onClick={() => void refresh(true)} disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-sm font-semibold text-gray-700 disabled:opacity-60">
-          <RefreshCw size={16} className={busy ? "animate-spin" : ""} /> Perbarui
-        </button>}
+        {status?.connected && !status.needsReconnect && <div className="flex gap-2">
+          <button onClick={() => void connect()} className="rounded-lg border bg-white px-3 py-2 text-sm font-semibold text-gray-700">Hubungkan ulang</button>
+          <button onClick={() => void refresh(true)} disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-sm font-semibold text-gray-700 disabled:opacity-60">
+            <RefreshCw size={16} className={busy ? "animate-spin" : ""} /> Perbarui
+          </button>
+        </div>}
       </div>
 
       {error && <Notice>{error}</Notice>}
