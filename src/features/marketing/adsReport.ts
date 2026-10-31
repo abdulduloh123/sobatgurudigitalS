@@ -1,14 +1,14 @@
-export type Sale = { id: string; date: string; amount: number; staffName?: string; leadId?: string | null; source?: string | null };
+export type Sale = { id: string; date: string; amount: number; staffName?: string; leadId?: string | null; source?: string | null; campaign?: string | null };
 export type Lead = { id: string; date?: string; source?: string | null; campaign?: string | null };
-export type AdDay = { date: string; campaigns: { id: string; name: string; spend: number; impressions: number; clicks: number }[] };
+export type AdDay = { date: string; campaigns: { id: string; name: string; spend: number; impressions: number; clicks: number; chats?: number }[] };
 
 export const SALE_SOURCES = ['Meta', 'TikTok', 'WA langsung', 'Referensi', 'Pelanggan lama', 'Lainnya'];
 const UNKNOWN = 'Belum diisi';
 const NO_CAMPAIGN = 'Kampanye tidak diketahui';
 
-export type Row = { label: string; spend: number; impressions: number; clicks: number; leads: number; closings: number; revenue: number; commission: number };
+export type Row = { label: string; spend: number; impressions: number; clicks: number; chats: number; leads: number; closings: number; revenue: number; commission: number };
 
-const blank = (label: string): Row => ({ label, spend: 0, impressions: 0, clicks: 0, leads: 0, closings: 0, revenue: 0, commission: 0 });
+const blank = (label: string): Row => ({ label, spend: 0, impressions: 0, clicks: 0, chats: 0, leads: 0, closings: 0, revenue: 0, commission: 0 });
 
 const leadSource = (source?: string | null) => {
     const value = (source ?? '').toLowerCase();
@@ -57,6 +57,7 @@ export function buildReport(days: AdDay[], allSales: Sale[], allLeads: Lead[], f
                 target.spend += campaign.spend;
                 target.impressions += campaign.impressions;
                 target.clicks += campaign.clicks;
+                target.chats += campaign.chats ?? 0;
             }
         }
     }
@@ -72,7 +73,8 @@ export function buildReport(days: AdDay[], allSales: Sale[], allLeads: Lead[], f
         const lead = sale.leadId ? leadsById.get(sale.leadId) : undefined;
         const source = lead ? leadSource(lead.source) : sale.source || UNKNOWN;
         const targets = [row(sources, source)];
-        if (source === 'Meta') targets.push(lead?.campaign ? row(campaigns, lead.campaign, norm(lead.campaign)) : row(campaigns, NO_CAMPAIGN, '\0'));
+        const campaign = lead?.campaign || sale.campaign;
+        if (source === 'Meta') targets.push(campaign ? row(campaigns, campaign, norm(campaign)) : row(campaigns, NO_CAMPAIGN, '\0'));
         for (const target of targets) {
             target.closings++;
             target.revenue += sale.amount;

@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { QUOTA_MESSAGE, isQuotaError, requireUser } from './_lib/clients.js'
 import {
-  MetaError, connect, getConnection, loginUrl, readAds, readState, saveLeads, syncAds, validSignature, verifyToken,
+  MetaError, connect, getConnection, loginUrl, readAds, readCampaignNames, readPixels, readState, saveLeads, syncAds, validSignature, verifyToken,
 } from './_lib/meta.js'
 
 // Lead notifications are signed over the exact bytes Meta sent, so the runtime must not parse the body first.
@@ -74,8 +74,15 @@ export default async function handler(request: IncomingMessage, response: Server
       response.end(JSON.stringify(value))
       return res
     }
-    const user = await requireUser(request as VercelRequest, res, ['admin'])
+    const user = await requireUser(request as VercelRequest, res, action === 'campaigns' ? ['cs', 'admin'] : ['admin'])
     if (!user) return
+
+    if (action === 'campaigns' && request.method === 'GET') return res.json({ names: await readCampaignNames() })
+
+    if (action === 'pixels' && request.method === 'GET') {
+      const connection = await getConnection()
+      return res.json({ pixels: connection ? await readPixels(connection) : [] })
+    }
 
     if (action === 'connect' && request.method === 'POST') return res.json({ url: loginUrl(user.id) })
 

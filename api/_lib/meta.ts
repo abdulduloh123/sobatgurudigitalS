@@ -10,12 +10,16 @@ const STATE_MS = 15 * 60_000
 const FRESH_MS = 6 * 60 * 60_000
 const FIRST_SYNC_DAYS = 90
 const LATER_SYNC_DAYS = 7
+// Raising this refills the stored days once, for when a new field is added to them.
+const SYNC_VERSION = 2
+const CHAT_ACTION = 'onsite_conversion.messaging_conversation_started_7d'
 
 export const connectionRef = () => firestore.doc('metaConnection/main')
+export const campaignNames = () => firestore.doc('metaConnection/campaigns')
 export const adsDaily = () => firestore.collection('adsDaily')
 const leadsCollection = () => firestore.collection(`artifacts/${process.env.FIREBASE_PROJECT_ID || 'sobatguru-digital'}/public/data/leadsData`)
 
-export type AdCampaign = { id: string; name: string; spend: number; impressions: number; clicks: number }
+export type AdCampaign = { id: string; name: string; spend: number; impressions: number; clicks: number; chats: number }
 export type Connection = {
   userToken: string
   pageToken: string | null
@@ -26,6 +30,7 @@ export type Connection = {
   connectedAt: string
   expiresAt: string | null
   lastSyncAt: string | null
+  syncVersion?: number
   lastError: string | null
   needsReconnect: boolean
 }
@@ -132,14 +137,14 @@ export async function getConnection() {
 
 const isoDay = (time: number) => new Date(time).toISOString().slice(0, 10)
 
-type InsightRow = { date_start: string; campaign_id: string; campaign_name: string; spend?: string; impressions?: string; clicks?: string }
+type InsightRow = { date_start: string; campaign_id: string; campaign_name: string; spend?: string; impressions?: string; clicks?: string; actions?: { action_type: string; value: string }[] }
 
 async function fetchInsights(token: string, since: string, until: string) {
   const rows: InsightRow[] = []
   let url: string | undefined = `${GRAPH}/${adAccount()}/insights?${new URLSearchParams({
     level: 'campaign',
     time_increment: '1',
-    fields: 'campaign_id,campaign_name,spend,impressions,clicks',
+    fields: 'campaign_id,campaign_name,spend,impressions,clicks,actions',
     time_range: JSON.stringify({ since, until }),
     limit: '500',
     access_token: token,
@@ -154,7 +159,7 @@ async function fetchInsights(token: string, since: string, until: string) {
 
 /** Stores spend per day, one document a day, so a month of report costs about 30 reads. */
 export async function syncAds(connection: Connection, force = false) {
-  const last = connection.lastSyncAt ? new Date(connection.lastSyncAt).getTime() : 0
+  const last = connection.lastSyncAt && connection.syncVersion === SYNC_VERSION ? new Date(connection.lastSyncAt).getTime() : 0
   if (!force && Date.now() - last < FRESH_MS) return { synced: false, lastSyncAt: connection.lastSyncAt }
 
   const days = last ? LATER_SYNC_DAYS : FIRST_SYNC_DAYS
@@ -169,12 +174,16 @@ export async function syncAds(connection: Connection, force = false) {
         spend: Number(row.spend) || 0,
         impressions: Number(row.impressions) || 0,
         clicks: Number(row.clicks) || 0,
+        chats: Number(row.actions?.find((action) => action.action_type === CHAT_ACTION)?.value) || 0,
       })
     }
     const lastSyncAt = new Date().toISOString()
     const batch = firestore.batch()
     for (const [date, campaigns] of byDate) batch.set(adsDaily().doc(date), { date, campaigns })
-    batch.update(connectionRef(), { lastSyncAt, lastError: null, needsReconnect: false })
+    // Newest first, so CS sees the campaigns running now at the top of the closing form.
+    const names = [...new Set(dates.flatMap((date) => (byDate.get(date) ?? []).filter((item) => item.spend > 0).map((item) => item.name)))]
+    batch.set(campaignNames(), { names })
+    batch.update(connectionRef(), { lastSyncAt, syncVersion: SYNC_VERSION, lastError: null, needsReconnect: false })
     await batch.commit()
     return { synced: true, lastSyncAt }
   } catch (error) {
@@ -188,6 +197,15 @@ export async function syncAds(connection: Connection, force = false) {
 export async function readAds(from: string, to: string) {
   const snapshot = await adsDaily().where('date', '>=', from).where('date', '<=', to).get()
   return snapshot.docs.map((doc) => doc.data() as { date: string; campaigns: AdCampaign[] })
+}
+
+export async function readCampaignNames() {
+  return ((await campaignNames().get()).data()?.names ?? []) as string[]
+}
+
+export async function readPixels(connection: Connection) {
+  const result = await graph<{ data?: { id: string; name: string; last_fired_time?: string }[] }>(`${GRAPH}/${adAccount()}/adspixels?${new URLSearchParams({ fields: 'id,name,last_fired_time', access_token: connection.userToken })}`)
+  return result.data ?? []
 }
 
 export function validSignature(rawBody: Buffer, header: string) {

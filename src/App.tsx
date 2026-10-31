@@ -13,6 +13,7 @@ import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged }
 import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, setDoc, writeBatch } from 'firebase/firestore';
 import WaRotatorAdmin from './features/marketing/WaRotatorAdmin';
 import AdsPerformance from './features/marketing/AdsPerformance';
+import BusinessPulse from './features/marketing/BusinessPulse';
 import { SALE_SOURCES } from './features/marketing/adsReport';
 import AdminAuthGate from './features/marketing/AdminAuthGate';
 import { MetaPixelSettings as GlobalMetaPixelSettings } from './features/marketing/MetaPixel';
@@ -1184,7 +1185,7 @@ function Dashboard({
             <div className="flex-grow overflow-y-auto pt-16 md:pt-0">
                 <main className="p-4 md:p-8">
                     {user.role === 'admin' && activeTab === 'overview' && (
-                        <AdminOverview salesData={salesData} expensesData={expensesData} />
+                        <AdminOverview salesData={salesData} expensesData={expensesData} leadsData={leadsData} />
                     )}
                     {user.role === 'admin' && activeTab === 'all_sales' && (
                         <SalesTable
@@ -1276,7 +1277,7 @@ function SidebarBtn({ icon, label, active, onClick }) {
     );
 }
 
-function AdminOverview({ salesData, expensesData }) {
+function AdminOverview({ salesData, expensesData, leadsData = [] }) {
     const [startDate, setStartDate] = useState(() => {
         const d = new Date();
         d.setDate(d.getDate() - 30);
@@ -1475,6 +1476,8 @@ function AdminOverview({ salesData, expensesData }) {
                     </div>
                 </div>
             </div>
+
+            <BusinessPulse auth={auth} sales={salesData} leads={leadsData} from={startDate} to={endDate} />
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:shadow-md transition animate-in">
@@ -3114,6 +3117,21 @@ function ManageStaff({ usersData, addStaffUser, deleteStaffUser, showConfirm }) 
 function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityLog, appSettings, leadsData = [], db, appId, username }) {
     const [leadId, setLeadId] = useState('');
     const [saleSource, setSaleSource] = useState('');
+    const [saleCampaign, setSaleCampaign] = useState('');
+    const [campaignNames, setCampaignNames] = useState(null);
+
+    useEffect(() => {
+        if (saleSource !== 'Meta' || campaignNames !== null) return;
+        void (async () => {
+            try {
+                const token = await auth.currentUser?.getIdToken();
+                const response = await fetch('/api/meta/campaigns', { headers: { Authorization: `Bearer ${token ?? ''}` } });
+                const result = await response.json();
+                setCampaignNames(response.ok ? result.names : []);
+            } catch { setCampaignNames([]); }
+        })();
+    }, [saleSource, campaignNames]);
+
     const [form, setForm] = useState({
         date: new Date().toISOString().split('T')[0],
         customer: '',
@@ -3188,7 +3206,7 @@ function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityL
             notes: form.notes
         };
 
-        addSale({ ...payloadClosingan, leadId: leadId || null, source: leadId ? null : saleSource || null, staffName: userName });
+        addSale({ ...payloadClosingan, leadId: leadId || null, source: leadId ? null : saleSource || null, campaign: !leadId && saleSource === 'Meta' ? saleCampaign || null : null, staffName: userName });
         if (leadId && db) {
             try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leadsData', leadId), { status: 'konversi', saleAmount: Number(form.amount), convertedAt: new Date().toISOString(), convertedBy: username || userName }); }
             catch (err) { console.error('Gagal menautkan closing ke lead', err); }
@@ -3200,6 +3218,7 @@ function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityL
         setForm({ date: new Date().toISOString().split('T')[0], customer: '', amount: '', notes: '' });
         setItems([{ id: Date.now(), jenjang: 'SD - Kelas 1', mapel: 'Matematika', customText: '' }]);
         setSaleSource('');
+        setSaleCampaign('');
         setTab('my_sales');
     };
 
@@ -3234,6 +3253,13 @@ function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityL
                     <select value={saleSource} onChange={e => setSaleSource(e.target.value)} className="w-full border px-3 py-2 rounded-xl bg-white text-sm text-gray-855">
                         <option value="">— Tidak diketahui —</option>
                         {SALE_SOURCES.map(item => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                </div>}
+                {!leadId && saleSource === 'Meta' && campaignNames?.length > 0 && <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">Kampanye Meta (opsional)</label>
+                    <select value={saleCampaign} onChange={e => setSaleCampaign(e.target.value)} className="w-full border px-3 py-2 rounded-xl bg-white text-sm text-gray-855">
+                        <option value="">— Tidak tahu —</option>
+                        {campaignNames.map(item => <option key={item} value={item}>{item}</option>)}
                     </select>
                 </div>}
                 {/* AREA SELEKSI DAFTAR ITEM DILAKUKAN SECARA MULTI-BARIS */}

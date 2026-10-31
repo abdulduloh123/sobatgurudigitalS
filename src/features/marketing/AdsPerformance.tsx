@@ -93,9 +93,9 @@ export default function AdsPerformance({ auth, sales, leads }: { auth: Auth; sal
   const report = useMemo(() => buildReport(days, sales, leads, from, to), [days, sales, leads, from, to]);
   const total = report.sources.reduce<Row>((sum, row) => ({
     ...sum,
-    spend: sum.spend + row.spend, leads: sum.leads + row.leads, closings: sum.closings + row.closings,
+    spend: sum.spend + row.spend, chats: sum.chats + row.chats, leads: sum.leads + row.leads, closings: sum.closings + row.closings,
     revenue: sum.revenue + row.revenue, commission: sum.commission + row.commission,
-  }), { label: "Total", spend: 0, impressions: 0, clicks: 0, leads: 0, closings: 0, revenue: 0, commission: 0 });
+  }), { label: "Total", spend: 0, impressions: 0, clicks: 0, chats: 0, leads: 0, closings: 0, revenue: 0, commission: 0 });
   const unknown = report.sources.find((row) => row.label === "Belum diisi");
 
   const presets: [string, string, string][] = [["7 hari", daysAgo(6), daysAgo(0)], ["30 hari", daysAgo(29), daysAgo(0)], ["Bulan ini", monthStart(), daysAgo(0)]];
@@ -158,8 +158,9 @@ function Table({ title, nameHeader, rows, total }: { title: string; nameHeader: 
     const value = roas(row);
     return <>
       <td className="px-4 py-3 text-right">{row.spend ? rupiah(row.spend) : "-"}</td>
+      <td className="px-4 py-3 text-right">{row.chats}</td>
+      <td className="px-4 py-3 text-right">{moneyOr(perUnit(row.spend, row.chats))}</td>
       <td className="px-4 py-3 text-right">{row.leads}</td>
-      <td className="px-4 py-3 text-right">{moneyOr(perUnit(row.spend, row.leads))}</td>
       <td className="px-4 py-3 text-right">{row.closings}</td>
       <td className="px-4 py-3 text-right">{moneyOr(perUnit(row.spend, row.closings))}</td>
       <td className="px-4 py-3 text-right">{rupiah(row.revenue)}</td>
@@ -171,16 +172,16 @@ function Table({ title, nameHeader, rows, total }: { title: string; nameHeader: 
     <section className="overflow-hidden rounded-xl border bg-white">
       <h2 className="border-b px-4 py-3 font-bold text-gray-800">{title}</h2>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[820px] text-sm text-gray-700">
+        <table className="w-full min-w-[900px] text-sm text-gray-700">
           <thead className="bg-gray-50 text-xs text-gray-500">
             <tr>
               <th className="px-4 py-2.5 text-left">{nameHeader}</th>
-              {["Biaya iklan", "Lead", "Biaya/lead", "Closing", "Biaya/closing", "Omzet", "ROAS", "Laba"].map((label) => <th key={label} className="px-4 py-2.5 text-right">{label}</th>)}
+              {["Biaya iklan", "Chat", "Biaya/chat", "Lead", "Closing", "Biaya/closing", "Omzet", "ROAS", "Laba"].map((label) => <th key={label} className="px-4 py-2.5 text-right">{label}</th>)}
             </tr>
           </thead>
           <tbody className="divide-y">
             {rows.map((row) => <tr key={row.label}><td className="px-4 py-3 font-medium text-gray-800">{row.label}</td>{cells(row)}</tr>)}
-            {!rows.length && <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Belum ada data pada periode ini.</td></tr>}
+            {!rows.length && <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">Belum ada data pada periode ini.</td></tr>}
             {total && rows.length > 0 && <tr className="bg-gray-50 font-bold"><td className="px-4 py-3">{total.label}</td>{cells(total)}</tr>}
           </tbody>
         </table>

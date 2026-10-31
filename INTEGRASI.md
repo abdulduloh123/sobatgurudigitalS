@@ -52,6 +52,7 @@ Tidak butuh Firebase Blaze. Semua berjalan lewat `api/meta.ts` di Vercel.
   Opsional: `META_LOGIN_CONFIG_ID` (kalau Facebook Login for Business memakai konfigurasi), `META_PAGE_ID`, `META_REDIRECT_URI`.
 - Admin membuka **Performa Iklan** lalu menekan **Hubungkan Meta**. Biaya iklan diperbarui saat tab dibuka, paling sering tiap 6 jam.
 - Webhook prospek: `https://www.mitragurudigitalindonesia.my.id/api/meta/lead-webhook`, objek Page, field `leadgen`.
+- Overview Bisnis menampilkan biaya, chat, ROAS, status Pixel, dan peringatan. Biaya Meta di panel ini tidak masuk Total Pengeluaran.
 - Token Meta tersimpan di `metaConnection/main`, dan biaya harian di `adsDaily`. Keduanya hanya diakses server.
 
 ## 6. Pakai
