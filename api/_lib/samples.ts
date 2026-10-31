@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import { FieldValue } from 'firebase-admin/firestore'
 import WordExtractor from 'word-extractor'
 import { drive, firestore, isQuotaError } from './clients.js'
 
@@ -11,6 +13,7 @@ export const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
 export const sampleFiles = () => firestore.collection('sampleFiles')
 export const sampleTexts = () => firestore.collection('sampleTexts')
+export const searchMisses = () => firestore.collection('sampleSearchMisses')
 export const indexMetaRef = () => firestore.doc('sampleIndex/meta')
 export const indexStateRef = () => firestore.doc('sampleIndex/state')
 export const catalogShardRef = (n: number) => firestore.doc(`sampleIndex/catalog-${n}`)
@@ -241,55 +244,84 @@ const STOPWORDS = new Set([
   'sebagai', 'oleh', 'para', 'akan', 'juga', 'tentang', 'serta', 'bagi', 'agar', 'the', 'of', 'and',
 ])
 
-export type ParsedQuery = { words: string[]; terms: string[] }
+// Words whose following number or letter is what identifies the material, e.g. "kelas 7", "fase D", "bab III".
+const LABELS = new Set(['kelas', 'semester', 'bab', 'tema', 'subtema', 'jilid', 'unit', 'fase'])
+const ROMAN = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii']
+
+/** `core` terms are required when asking Drive; the others may live only in the file or folder name, so they rank instead. */
+export type Term = { forms: string[]; core: boolean; label?: string }
+export type ParsedQuery = { words: string[]; terms: Term[] }
+
+function labelledTerm(label: string, value: string): Term | null {
+  if (label === 'fase') return /^[a-f]$/.test(value) ? { forms: [`fase ${value}`], core: false, label } : null
+  const number = /^\d+$/.test(value) ? Number(value) : ROMAN.indexOf(value) + 1
+  if (!number) return null
+  const roman = ROMAN[number - 1]
+  return { forms: [`${label} ${number}`, ...(roman ? [`${label} ${roman}`] : [])], core: false, label }
+}
 
 export function parseQuery(input: string): ParsedQuery {
   const words = (input.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).slice(0, 10)
-  const content = words.filter((word) => word.length > 1 && !STOPWORDS.has(word))
-  return { words, terms: [...new Set(content.length ? content : words)] }
+  const found: Term[] = []
+  for (let i = 0; i < words.length; i++) {
+    const labelled = LABELS.has(words[i]) && i + 1 < words.length ? labelledTerm(words[i], words[i + 1]) : null
+    if (labelled) {
+      found.push(labelled)
+      i++
+    } else if (/^\d+$/.test(words[i])) found.push({ forms: [words[i]], core: false })
+    else if (words[i].length > 1 && !STOPWORDS.has(words[i])) found.push({ forms: [words[i]], core: true })
+  }
+  const terms = found.length ? found : words.map((word) => ({ forms: [word], core: true }))
+  return { words, terms: terms.filter((term, index) => terms.findIndex((other) => other.forms[0] === term.forms[0]) === index) }
 }
 
 const driveQuote = (value: string) => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 const mimeClause = `(${SEARCHABLE_MIMES.map((mime) => `mimeType = '${mime}'`).join(' or ')}) and trashed = false`
 
 export function driveClauses(query: ParsedQuery) {
-  const term = (value: string) => `fullText contains '${driveQuote(value)}'`
+  const contains = (form: string) => `fullText contains '${driveQuote(form.includes(' ') ? `"${form}"` : form)}'`
+  const term = (value: Term) => value.forms.length > 1 ? `(${value.forms.map(contains).join(' or ')})` : contains(value.forms[0])
+  const core = query.terms.filter((value) => value.core)
   return {
-    phrase: query.words.length > 1 ? `fullText contains '"${driveQuote(query.words.join(' '))}"'` : null,
+    phrase: query.words.length > 1 ? contains(query.words.join(' ')) : null,
     all: query.terms.map(term).join(' and '),
+    core: core.length && core.length < query.terms.length ? core.map(term).join(' and ') : null,
     any: query.terms.length > 1 ? `(${query.terms.map(term).join(' or ')})` : null,
   }
 }
 
 /**
  * Fetch a bounded number of Drive candidates per clause.
- * Drive does not rank by our document-content relevance, but following a few
- * nextPageToken pages prevents silently ignoring the first page boundary.
+ * Results come back before any folder filter, so one page is not enough for narrow folders.
  * The cap deliberately bounds latency and Drive API work per user query.
  */
-const DRIVE_PAGE_SIZE = 100
-const MAX_DRIVE_RESULTS_PER_CLAUSE = 200
+export const MAX_DRIVE_HITS = 500
 
 export async function driveSearch(clause: string) {
   const files: DriveFile[] = []
   let pageToken: string | undefined
-
   do {
     const result = await drive.files.list({
       q: `${clause} and ${mimeClause}`,
       fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, parents, size, trashed)',
-      pageSize: Math.min(DRIVE_PAGE_SIZE, MAX_DRIVE_RESULTS_PER_CLAUSE - files.length),
+      pageSize: MAX_DRIVE_HITS - files.length,
       pageToken,
       corpora: 'allDrives',
       includeItemsFromAllDrives: true,
       supportsAllDrives: true,
     })
-
-    files.push(...(result.data.files ?? []))
+    files.push(...result.data.files ?? [])
     pageToken = result.data.nextPageToken ?? undefined
-  } while (pageToken && files.length < MAX_DRIVE_RESULTS_PER_CLAUSE)
+  } while (pageToken && files.length < MAX_DRIVE_HITS)
+  return files.slice(0, MAX_DRIVE_HITS)
+}
 
-  return files.slice(0, MAX_DRIVE_RESULTS_PER_CLAUSE)
+/** Counts searches that found nothing, so missing material and missing synonyms can be spotted. */
+export async function recordMiss(q: string) {
+  const text = q.trim().toLowerCase().replace(/\s+/g, ' ')
+  const id = createHash('sha1').update(text).digest('hex')
+  await searchMisses().doc(id).set({ q: text, count: FieldValue.increment(1), last_at: new Date().toISOString() }, { merge: true })
+    .catch((error) => console.error('Search miss log failed:', error))
 }
 
 // ---------- Snippets ----------
@@ -302,13 +334,44 @@ const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$
 const BEFORE = 90
 const AFTER = 170
 
+// Whole words only, so "seni" does not match "Senin"; "-nya" still counts as the same word.
+const START = '(?<![\\p{L}\\p{N}])'
+const END = '(?:nya)?(?![\\p{L}\\p{N}])'
+const wordSource = (value: string) => value.split(' ').map(escapeRegex).join('[\\s\\p{P}]+')
+const termSource = (term: Term) => `(?:${term.forms.map(wordSource).join('|')})`
+const termRegex = (term: Term) => new RegExp(START + termSource(term) + END, 'iu')
+
 function buildPatterns(query: ParsedQuery) {
-  const start = '(?<![\\p{L}\\p{N}])'
-  const phrase = query.words.length > 1
-    ? new RegExp(start + query.words.map(escapeRegex).join('[\\s\\p{P}]+'), 'giu')
-    : null
-  const terms = query.terms.length ? new RegExp(`${start}(?:${query.terms.map(escapeRegex).join('|')})`, 'giu') : null
+  const phrase = query.words.length > 1 ? new RegExp(START + wordSource(query.words.join(' ')) + END, 'giu') : null
+  const terms = query.terms.length ? new RegExp(`${START}(?:${query.terms.map(termSource).join('|')})${END}`, 'giu') : null
   return { phrase, terms }
+}
+
+/** Builds a scorer for file and folder names, which are available for every file without reading any text. */
+export function nameScorer(query: ParsedQuery) {
+  const phrase = query.words.length > 1 ? new RegExp(START + wordSource(query.words.join(' ')) + END, 'iu') : null
+  const terms = query.terms.map((term) => {
+    const value = term.label === 'fase' ? '[a-f]' : '(?:\\d+|[ivx]+)'
+    return {
+      regex: termRegex(term),
+      // The same label with another value, e.g. "Kelas 8" when searching "kelas 7".
+      other: term.label ? new RegExp(`${START}${term.label}[\\s\\p{P}]+${value}${END}`, 'iu') : null,
+    }
+  })
+  return (entry: Pick<CatalogEntry, 'name' | 'path'>) => {
+    let inName = 0
+    let inPath = 0
+    let conflict = false
+    for (const term of terms) {
+      const name = term.regex.test(entry.name)
+      const path = term.regex.test(entry.path)
+      if (name) inName++
+      if (path) inPath++
+      if (!name && !path && term.other?.test(`${entry.path} ${entry.name}`)) conflict = true
+    }
+    const score = (120 * inName + 60 * inPath) / (terms.length || 1) + (phrase?.test(entry.name) ? 150 : 0) - (conflict ? 200 : 0)
+    return { score, allTerms: terms.length > 0 && terms.every((term) => term.regex.test(`${entry.path} ${entry.name}`)) }
+  }
 }
 
 function passage(text: string, from: number, to: number, patterns: ReturnType<typeof buildPatterns>): Segment[] {
@@ -353,10 +416,10 @@ function passage(text: string, from: number, to: number, patterns: ReturnType<ty
 }
 
 /** Finds where the query appears in a document and returns highlighted passages.
- * `score` is an internal ranking signal for results already selected for a page;
- * a dedicated full-text index is needed to rank the entire candidate set globally.
+ * `score` refines the order within a page; the overall order comes from file names and how Drive matched,
+ * because a dedicated full-text index is needed to rank the entire candidate set by text.
  */
-export function analyzeText(text: string, name: string, query: ParsedQuery, maxPassages: number): Analysis {
+export function analyzeText(text: string, entry: Pick<CatalogEntry, 'name' | 'path'>, query: ParsedQuery, maxPassages: number): Analysis {
   const patterns = buildPatterns(query)
   const passages: Segment[][] = []
 
@@ -381,12 +444,11 @@ export function analyzeText(text: string, name: string, query: ParsedQuery, maxP
   }
 
   const hits = patterns.terms ? [...text.matchAll(patterns.terms)].slice(0, 3000) : []
-  const matchedTerms = query.terms.filter((term) =>
-    hits.some((hit) => hit[0].toLowerCase().startsWith(term)),
-  )
-  const allTerms = matchedTerms.length === query.terms.length
-  const lowerName = name.toLowerCase()
-  const nameHasPhrase = query.words.length > 1 && lowerName.includes(query.words.join(' '))
+  const names = `${entry.path} ${entry.name}`
+  const regexes = query.terms.map(termRegex)
+  const matchedTerms = regexes.filter((regex) => regex.test(text))
+  const allTerms = regexes.every((regex) => matchedTerms.includes(regex) || regex.test(names))
+  const nameHasPhrase = query.words.length > 1 && entry.name.toLowerCase().includes(query.words.join(' '))
 
   // Pick the windows that contain the most distinct query terms.
   const used: [number, number][] = []
@@ -411,7 +473,7 @@ export function analyzeText(text: string, name: string, query: ParsedQuery, maxP
     passages.push(passage(text, best.from, best.to, patterns))
   }
 
-  const tier: MatchTier = hits.length && allTerms ? 'semua' : hits.length ? 'sebagian' : 'judul'
+  const tier: MatchTier = allTerms ? 'semua' : hits.length ? 'sebagian' : 'judul'
   const coverage = matchedTerms.length / Math.max(query.terms.length, 1)
   const tierBase = tier === 'semua' ? 700 : tier === 'sebagian' ? 400 : 100
   const titleBonus = tier === 'judul' && nameHasPhrase ? 20 : 0

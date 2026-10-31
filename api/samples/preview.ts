@@ -15,7 +15,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!entry) return res.status(404).json({ error: 'File tidak ditemukan di folder sampel.' })
     const text = (await getTexts([entry])).get(entry.id) ?? ''
     const query = parseQuery(q)
-    const analysis = query.terms.length ? analyzeText(text, entry.name, query, 12) : null
+    const analysis = query.terms.length ? analyzeText(text, entry, query, 12) : null
     return res.json({
       id: entry.id,
       name: entry.name,

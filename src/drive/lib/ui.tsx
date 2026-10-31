@@ -25,7 +25,7 @@ export function Passage({ segments }: { segments: Segment[] }) {
 export function Highlight({ text, query }: { text: string; query: string }) {
   const words = [...new Set(query.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) ?? [])]
   if (!words.length) return <>{text}</>
-  const pattern = new RegExp(`(${words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'giu')
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(${words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?![\\p{L}\\p{N}])`, 'giu')
   return <>{text.split(pattern).map((part, index) => index % 2
     ? <mark key={index} className="rounded bg-yellow-200/80 px-0.5 text-inherit">{part}</mark>
     : part)}</>

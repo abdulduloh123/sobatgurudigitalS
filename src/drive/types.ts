@@ -18,6 +18,7 @@ export interface SearchResult {
 export interface SearchResponse {
   results: SearchResult[]
   total: number
+  capped: boolean
   offset: number
   hasMore: boolean
   widened: boolean
@@ -67,5 +68,12 @@ export interface DownloadLog {
   userName: string
   guru: string | null
   catatan: string | null
+  query: string | null
   createdAt: string | null
+}
+
+export interface SearchMiss {
+  q: string
+  count: number
+  lastAt: string | null
 }

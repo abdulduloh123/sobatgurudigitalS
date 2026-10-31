@@ -81,7 +81,7 @@ export default function Search({ isAdmin }: { isAdmin: boolean }) {
       if (response.total) rememberQuery(q)
     }).catch((cause: unknown) => {
       if (controller.signal.aborted) return
-      setData({ results: [], total: 0, offset: 0, hasMore: false, widened: false, key: `${q}|${folder}`, error: cause instanceof Error ? cause.message : 'Pencarian gagal.' })
+      setData({ results: [], total: 0, capped: false, offset: 0, hasMore: false, widened: false, key: `${q}|${folder}`, error: cause instanceof Error ? cause.message : 'Pencarian gagal.' })
     })
     return () => controller.abort()
   }, [q, folder, rememberQuery])
@@ -146,7 +146,7 @@ export default function Search({ isAdmin }: { isAdmin: boolean }) {
   async function download(file: { id: string; name: string }) {
     setDownloading((current) => new Set(current).add(file.id))
     try {
-      await downloadSample(file, recipient.guru, recipient.catatan)
+      await downloadSample(file, recipient.guru, recipient.catatan, q)
       setDownloaded((current) => new Set(current).add(file.id))
       setToast(`Mengunduh ${file.name}`)
     } catch (cause) {
@@ -268,7 +268,7 @@ export default function Search({ isAdmin }: { isAdmin: boolean }) {
           <p className="text-slate-600">
             {loading ? 'Mencari di isi dokumen…'
               : error ? ''
-                : total ? <><b className="text-slate-900">{total.toLocaleString('id-ID')}{total >= 100 ? '+' : ''}</b> dokumen untuk “{q}”{folder && <> di <b>{folder}</b></>}</>
+                : total ? <><b className="text-slate-900">{total.toLocaleString('id-ID')}{current?.capped ? '+' : ''}</b> dokumen untuk “{q}”{folder && <> di <b>{folder}</b></>}</>
                   : null}
           </p>
           {widened && !loading && total > 0 && <p className="text-xs text-amber-700">Hasil persis sedikit, jadi ikut ditampilkan dokumen yang memuat sebagian kata.</p>}

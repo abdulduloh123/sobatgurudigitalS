@@ -1,5 +1,5 @@
 import { sampleDriveAuth } from '../../lib/firebase'
-import type { CatalogMeta, DownloadLog, IndexStatus, Preview, SearchResponse } from '../types'
+import type { CatalogMeta, DownloadLog, IndexStatus, Preview, SearchMiss, SearchResponse } from '../types'
 
 async function authFetch(path: string, init: RequestInit = {}) {
   const token = await sampleDriveAuth.currentUser?.getIdToken()
@@ -41,10 +41,10 @@ export async function getCatalogMeta() {
   return (await readJson<{ meta: CatalogMeta | null }>(res, 'Gagal membaca status katalog')).meta
 }
 
-export async function downloadSample(file: { id: string; name: string }, guru: string, catatan: string) {
+export async function downloadSample(file: { id: string; name: string }, guru: string, catatan: string, query: string) {
   const res = await authFetch('/api/samples/download', {
     method: 'POST',
-    body: JSON.stringify({ id: file.id, guru, catatan }),
+    body: JSON.stringify({ id: file.id, guru, catatan, query }),
   })
   if (!res.ok) await readJson(res, 'Gagal mengunduh')
   const blob = await res.blob()
@@ -96,5 +96,5 @@ export async function indexAction(action: 'reset' | 'retry') {
 
 export async function listDownloadLogs() {
   const res = await authFetch('/api/admin/samples/logs')
-  return (await readJson<{ logs: DownloadLog[] }>(res, 'Gagal memuat log')).logs
+  return readJson<{ logs: DownloadLog[]; misses: SearchMiss[] }>(res, 'Gagal memuat log')
 }

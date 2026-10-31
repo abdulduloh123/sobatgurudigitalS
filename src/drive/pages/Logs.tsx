@@ -2,22 +2,23 @@ import { useEffect, useMemo, useState } from 'react'
 import { FileDown, LoaderCircle, RefreshCw, Search, TriangleAlert } from 'lucide-react'
 import { listDownloadLogs } from '../lib/api'
 import { formatDate } from '../lib/format'
-import type { DownloadLog } from '../types'
+import type { DownloadLog, SearchMiss } from '../types'
 
 function toCsv(rows: DownloadLog[]) {
   const cell = (value: string | null) => `"${(value ?? '').replace(/"/g, '""')}"`
-  const header = ['Waktu', 'CS', 'Guru', 'Catatan', 'File', 'Folder']
-  const lines = rows.map((row) => [formatDate(row.createdAt), row.userName, row.guru, row.catatan, row.fileName, row.path].map(cell).join(','))
+  const header = ['Waktu', 'CS', 'Guru', 'Catatan', 'Pencarian', 'File', 'Folder']
+  const lines = rows.map((row) => [formatDate(row.createdAt), row.userName, row.guru, row.catatan, row.query, row.fileName, row.path].map(cell).join(','))
   return [header.join(','), ...lines].join('\n')
 }
 
 export default function Logs() {
   const [logs, setLogs] = useState<DownloadLog[] | null>(null)
+  const [misses, setMisses] = useState<SearchMiss[]>([])
   const [error, setError] = useState('')
   const [filter, setFilter] = useState('')
   const [reloading, setReloading] = useState(false)
 
-  const fetchLogs = () => listDownloadLogs().then((rows) => { setLogs(rows); setError('') })
+  const fetchLogs = () => listDownloadLogs().then((data) => { setLogs(data.logs); setMisses(data.misses); setError('') })
     .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'Gagal memuat log.'))
 
   async function load() {
@@ -31,7 +32,7 @@ export default function Logs() {
   const shown = useMemo(() => {
     const words = filter.toLowerCase().split(/\s+/).filter(Boolean)
     return (logs ?? []).filter((row) => {
-      const hay = `${row.fileName} ${row.userName} ${row.guru ?? ''} ${row.catatan ?? ''} ${row.path ?? ''}`.toLowerCase()
+      const hay = `${row.fileName} ${row.userName} ${row.guru ?? ''} ${row.catatan ?? ''} ${row.query ?? ''} ${row.path ?? ''}`.toLowerCase()
       return words.every((word) => hay.includes(word))
     })
   }, [logs, filter])
@@ -83,6 +84,14 @@ export default function Logs() {
         </div>
       </section>}
 
+      {misses.length > 0 && <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Pencarian tanpa hasil</div>
+        <p className="mb-2 text-xs text-slate-400">Penanda materi yang belum ada atau istilah yang perlu dikenali sistem. Kata yang belum selesai diketik bisa ikut tercatat.</p>
+        <div className="flex flex-wrap gap-2">{misses.map((miss) => <span key={miss.q} title={`Terakhir ${formatDate(miss.lastAt)}`} className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700">
+          {miss.q} <span className="text-slate-400">{miss.count}×</span>
+        </span>)}</div>
+      </section>}
+
       <div className="relative">
         <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
         <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Saring berdasarkan file, CS, guru, atau catatan…"
@@ -102,7 +111,7 @@ export default function Logs() {
               <td className="whitespace-nowrap px-4 py-3 text-slate-500">{formatDate(row.createdAt)}</td>
               <td className="px-4 py-3 font-medium text-slate-800">{row.userName}</td>
               <td className="px-4 py-3 text-slate-700">{row.guru || <span className="text-slate-400">-</span>}{row.catatan && <p className="text-xs text-slate-500">{row.catatan}</p>}</td>
-              <td className="px-4 py-3"><p className="text-slate-800">{row.fileName}</p>{row.path && <p className="text-xs text-slate-400">{row.path}</p>}</td>
+              <td className="px-4 py-3"><p className="text-slate-800">{row.fileName}</p>{row.path && <p className="text-xs text-slate-400">{row.path}</p>}{row.query && <p className="text-xs text-slate-500">dicari: “{row.query}”</p>}</td>
             </tr>)}
             {!shown.length && <tr><td colSpan={4} className="px-4 py-10 text-center text-slate-400">Tidak ada log yang cocok.</td></tr>}
           </tbody>

@@ -1,11 +1,13 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { QUOTA_MESSAGE, isQuotaError, requireUser } from '../_lib/clients.js'
 import {
-  analyzeText, driveClauses, driveSearch, getTexts, loadCatalog, mapLimit, parseQuery, resolveDriveFile,
-  type CatalogEntry,
+  MAX_DRIVE_HITS, analyzeText, driveClauses, driveSearch, getTexts, loadCatalog, mapLimit, nameScorer, parseQuery, recordMiss,
+  resolveDriveFile, type CatalogEntry,
 } from '../_lib/samples.js'
 
 const PAGE_SIZE = 12
+// How strongly each way of finding a file counts, before the file and folder name score is added.
+const SOURCE_SCORE = { phrase: 300, all: 200, core: 100, any: 0 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Gunakan GET.' })
@@ -13,41 +15,53 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const q = typeof req.query.q === 'string' ? req.query.q.slice(0, 120) : ''
   const folder = typeof req.query.folder === 'string' ? req.query.folder.slice(0, 300) : ''
-  const offset = Math.max(0, Math.min(Number(req.query.offset) || 0, 500))
+  const offset = Math.max(0, Math.min(Number(req.query.offset) || 0, 5000))
   const query = parseQuery(q)
   if (!query.terms.length) return res.status(400).json({ error: 'Ketik kata atau kalimat yang ingin dicari.' })
 
   try {
     const clauses = driveClauses(query)
-    const [phraseHits, allHits] = await Promise.all([
+    const [phraseHits, allHits, coreHits] = await Promise.all([
       clauses.phrase ? driveSearch(clauses.phrase) : Promise.resolve([]),
       driveSearch(clauses.all),
+      clauses.core ? driveSearch(clauses.core) : Promise.resolve([]),
     ])
-    // Only widen to "any word" when the stricter searches find very little.
-    const seen = new Set([...phraseHits, ...allHits].map((file) => file.id))
-    const anyHits = clauses.any && seen.size < 8 ? await driveSearch(clauses.any) : []
-
-    // Preserve the strongest Drive clause that returned each file, without an O(n²) scan.
-    const unique = new Map<string, (typeof phraseHits)[number]>()
-    for (const file of [...phraseHits, ...allHits, ...anyHits]) {
-      if (file.id && !unique.has(file.id)) unique.set(file.id, file)
-    }
-    const ordered = [...unique.values()]
 
     const { map } = await loadCatalog()
-    const resolved: (CatalogEntry | null)[] = new Array(ordered.length).fill(null)
-    await mapLimit(ordered.map((file, index) => ({ file, index })), 6, async ({ file, index }) => {
-      resolved[index] = await resolveDriveFile(file, map)
-    })
-    const inScope = resolved.filter((entry): entry is CatalogEntry => entry !== null)
-      .filter((entry) => !folder || entry.path === folder || entry.path.startsWith(`${folder}/`))
+    const scoreName = nameScorer(query)
+    const inFolder = (entry: CatalogEntry) => !folder || entry.path === folder || entry.path.startsWith(`${folder}/`)
+    const candidates = new Map<string, { entry: CatalogEntry; score: number }>()
+    const addHits = async (files: typeof allHits, source: number) => {
+      const fresh = [...new Map(files.map((file) => [file.id, file])).values()].filter((file) => file.id && !candidates.has(file.id))
+      await mapLimit(fresh, 6, async (file) => {
+        const entry = await resolveDriveFile(file, map)
+        if (entry && inFolder(entry)) candidates.set(entry.id, { entry, score: source + scoreName(entry).score })
+      })
+    }
 
-    const page = inScope.slice(offset, offset + PAGE_SIZE)
+    await addHits(phraseHits, SOURCE_SCORE.phrase)
+    await addHits(allHits, SOURCE_SCORE.all)
+    await addHits(coreHits, SOURCE_SCORE.core)
+    // Drive does not search folder names, so files matched only by their path come from the catalog.
+    for (const entry of map.values()) {
+      if (candidates.has(entry.id) || !inFolder(entry)) continue
+      const { score, allTerms } = scoreName(entry)
+      if (allTerms) candidates.set(entry.id, { entry, score: SOURCE_SCORE.all + score })
+    }
+
+    // Only widen to "any word" when the stricter searches find very little in this folder.
+    const strictCount = candidates.size
+    const anyHits = clauses.any && strictCount < 8 ? await driveSearch(clauses.any) : []
+    await addHits(anyHits, SOURCE_SCORE.any)
+
+    const ranked = [...candidates.values()].sort((a, b) => b.score - a.score).map((item) => item.entry)
+    if (!ranked.length && !folder && !offset) await recordMiss(q)
+
+    const page = ranked.slice(offset, offset + PAGE_SIZE)
     const texts = await getTexts(page)
-    const ranked = page.map((entry) => {
+    const scored = page.map((entry) => {
       const text = texts.get(entry.id) ?? ''
-      const analysis = analyzeText(text, entry.name, query, 2)
-      const { score, ...publicAnalysis } = analysis
+      const { score, ...analysis } = analyzeText(text, entry, query, 2)
       return {
         score,
         result: {
@@ -57,21 +71,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           path: entry.path,
           modifiedTime: entry.modifiedTime,
           readable: text.length > 0,
-          ...publicAnalysis,
+          ...analysis,
         },
       }
     })
-    // Rank the selected page by body relevance, then use name for deterministic ties.
+    // Refine the selected page by body relevance; ties keep the overall rank.
     // This intentionally avoids reading every candidate's text on every search.
-    ranked.sort((a, b) => b.score - a.score || a.result.name.localeCompare(b.result.name))
-    const results = ranked.map(({ result }) => result)
+    scored.sort((a, b) => b.score - a.score)
+    const results = scored.map(({ result }) => result)
 
     return res.json({
       results,
-      total: inScope.length,
+      total: ranked.length,
+      capped: [phraseHits, allHits, coreHits, anyHits].some((hits) => hits.length >= MAX_DRIVE_HITS),
       offset,
-      hasMore: offset + PAGE_SIZE < inScope.length,
-      widened: anyHits.length > 0,
+      hasMore: offset + PAGE_SIZE < ranked.length,
+      widened: candidates.size > strictCount,
     })
   } catch (error) {
     console.error('Sample search failed:', error)

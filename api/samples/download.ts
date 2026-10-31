@@ -47,6 +47,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     role: user.role,
     guru: typeof body.guru === 'string' ? body.guru.trim().slice(0, 160) || null : null,
     catatan: typeof body.catatan === 'string' ? body.catatan.trim().slice(0, 1000) || null : null,
+    query: typeof body.query === 'string' ? body.query.trim().slice(0, 120) || null : null,
     created_at: new Date().toISOString(),
   }).catch((error) => console.error('Download log failed:', error))
 

@@ -43,7 +43,8 @@ File yang baru diunggah tetap bisa dicari sebelum diperbarui (dibaca saat pertam
 
 1. Login dashboard, klik **Samples**.
 2. Ketik materi yang dicari. Hasil muncul otomatis saat berhenti mengetik.
-   - **Frasa persis** tampil paling atas, lalu dokumen yang memuat **semua kata**.
+   - **Frasa persis** tampil paling atas, lalu dokumen yang memuat **semua kata**. Kata di nama file dan nama folder ikut dihitung.
+   - `kelas 7` dan `kelas VII` dianggap sama (begitu juga `bab`, `semester`, `tema`). Dokumen yang jelas untuk kelas lain turun ke bawah.
    - Jika hasilnya sedikit, ikut ditampilkan dokumen yang memuat **sebagian kata**.
 3. Saring per folder (misalnya SD / SMP) dengan tombol di bawah kotak pencarian, atau klik nama folder pada hasil.
 4. **Lihat semua cuplikan** untuk membaca semua bagian yang cocok sebelum mengunduh.
@@ -53,7 +54,7 @@ Pintasan: tekan `/` untuk langsung mengetik, `Esc` untuk menghapus. Alamat halam
 
 ## 5. Admin: log unduhan
 
-Tab **Log unduhan** menampilkan 500 unduhan terakhir (siapa, file apa, untuk guru siapa), file yang paling sering diunduh, dan tombol **Unduh CSV**.
+Tab **Log unduhan** menampilkan 500 unduhan terakhir (siapa, file apa, untuk guru siapa, kata pencariannya), file yang paling sering diunduh, **pencarian tanpa hasil**, dan tombol **Unduh CSV**.
 
 ## Jika belum berhasil
 
@@ -65,8 +66,8 @@ Tab **Log unduhan** menampilkan 500 unduhan terakhir (siapa, file apa, untuk gur
 
 ## Catatan teknis
 
-- Pencarian memakai indeks teks lengkap Google Drive (`fullText contains`). Cuplikan dibuat server dari teks dokumen yang disimpan di Firestore, diperbarui otomatis bila file berubah.
-- Setiap file punya satu dokumen di `sampleFiles` (data file + teks + status baca). `sampleTexts` hanya berisi teks lama yang masih dipakai sampai filenya berubah. Ringkasan katalog ada di `sampleIndex`. Semua data Samples hanya diakses server.
+- Pencarian memakai indeks teks lengkap Google Drive (`fullText contains`, maksimal 500 file per kueri) ditambah nama file dan folder dari katalog. Peringkat dihitung untuk semua kandidat sebelum dibagi per halaman. Cuplikan dibuat server dari teks dokumen yang disimpan di Firestore, diperbarui otomatis bila file berubah.
+- Setiap file punya satu dokumen di `sampleFiles` (data file + teks + status baca). `sampleTexts` hanya berisi teks lama yang masih dipakai sampai filenya berubah. Ringkasan katalog ada di `sampleIndex`, dan hitungan pencarian tanpa hasil di `sampleSearchMisses`. Semua data Samples hanya diakses server.
 - Hemat kuota: persiapan pertama ±1,5 tulis per dokumen; **Perbarui pencarian** hanya menulis dokumen yang baru atau berubah (puluhan tulis untuk ribuan file), dan membaca ±1 kali per dokumen.
 - Jika kuota harian Firebase habis, layar menampilkan pesan kuota; tekan tombolnya lagi setelah kuota pulih dan proses lanjut dari titik terakhir.
 - File berukuran sangat besar dapat terkena batas ukuran respons serverless Vercel saat diunduh.
