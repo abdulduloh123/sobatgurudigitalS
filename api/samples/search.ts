@@ -30,12 +30,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { map } = await loadCatalog()
     const scoreName = nameScorer(query)
     const inFolder = (entry: CatalogEntry) => !folder || entry.path === folder || entry.path.startsWith(`${folder}/`)
-    const candidates = new Map<string, { entry: CatalogEntry; score: number }>()
+    type Candidate = { entry: CatalogEntry; score: number; conflict: boolean }
+    const candidates = new Map<string, Candidate>()
+    const candidate = (entry: CatalogEntry, source: number): Candidate => {
+      const name = scoreName(entry)
+      return { entry, score: source + name.score, conflict: name.conflict }
+    }
     const addHits = async (files: typeof allHits, source: number) => {
       const fresh = [...new Map(files.map((file) => [file.id, file])).values()].filter((file) => file.id && !candidates.has(file.id))
       await mapLimit(fresh, 6, async (file) => {
         const entry = await resolveDriveFile(file, map)
-        if (entry && inFolder(entry)) candidates.set(entry.id, { entry, score: source + scoreName(entry).score })
+        if (entry && inFolder(entry)) candidates.set(entry.id, candidate(entry, source))
       })
     }
 
@@ -45,8 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Drive does not search folder names, so files matched only by their path come from the catalog.
     for (const entry of map.values()) {
       if (candidates.has(entry.id) || !inFolder(entry)) continue
-      const { score, allTerms } = scoreName(entry)
-      if (allTerms) candidates.set(entry.id, { entry, score: SOURCE_SCORE.all + score })
+      if (scoreName(entry).allTerms) candidates.set(entry.id, candidate(entry, SOURCE_SCORE.all))
     }
 
     // Only widen to "any word" when the stricter searches find very little in this folder.
@@ -54,16 +58,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const anyHits = clauses.any && strictCount < 8 ? await driveSearch(clauses.any) : []
     await addHits(anyHits, SOURCE_SCORE.any)
 
-    const ranked = [...candidates.values()].sort((a, b) => b.score - a.score).map((item) => item.entry)
+    // Files for another grade, semester, etc. always come after the ones that fit the search.
+    const byRank = (a: Candidate, b: Candidate) => Number(a.conflict) - Number(b.conflict) || b.score - a.score
+    const ranked = [...candidates.values()].sort(byRank)
     if (!ranked.length && !folder && !offset) await recordMiss(q)
 
     const page = ranked.slice(offset, offset + PAGE_SIZE)
-    const texts = await getTexts(page)
-    const scored = page.map((entry) => {
+    const texts = await getTexts(page.map((item) => item.entry))
+    const scored = page.map(({ entry, conflict }) => {
       const text = texts.get(entry.id) ?? ''
       const { score, ...analysis } = analyzeText(text, entry, query, 2)
       return {
         score,
+        conflict,
         result: {
           id: entry.id,
           name: entry.name,
@@ -77,7 +84,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     })
     // Refine the selected page by body relevance; ties keep the overall rank.
     // This intentionally avoids reading every candidate's text on every search.
-    scored.sort((a, b) => b.score - a.score)
+    scored.sort((a, b) => Number(a.conflict) - Number(b.conflict) || b.score - a.score)
     const results = scored.map(({ result }) => result)
 
     return res.json({

@@ -249,7 +249,7 @@ const LABELS = new Set(['kelas', 'semester', 'bab', 'tema', 'subtema', 'jilid', 
 const ROMAN = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii']
 
 /** `core` terms are required when asking Drive; the others may live only in the file or folder name, so they rank instead. */
-export type Term = { forms: string[]; core: boolean; label?: string }
+export type Term = { forms: string[]; core: boolean; label?: string; grade?: number }
 export type ParsedQuery = { words: string[]; terms: Term[] }
 
 function labelledTerm(label: string, value: string): Term | null {
@@ -257,7 +257,38 @@ function labelledTerm(label: string, value: string): Term | null {
   const number = /^\d+$/.test(value) ? Number(value) : ROMAN.indexOf(value) + 1
   if (!number) return null
   const roman = ROMAN[number - 1]
-  return { forms: [`${label} ${number}`, ...(roman ? [`${label} ${roman}`] : [])], core: false, label }
+  return {
+    forms: [`${label} ${number}`, ...(roman ? [`${label} ${roman}`] : [])],
+    core: false,
+    label,
+    ...(label === 'kelas' && number <= 12 ? { grade: number } : {}),
+  }
+}
+
+/** A bare number 1-12 such as the "7" in "7 IPA KBC" almost always means the grade (kelas). */
+function bareNumberTerm(value: string): Term {
+  const number = Number(value)
+  if (value.startsWith('0') || number < 1 || number > 12) return { forms: [value], core: false }
+  return { forms: [value, `kelas ${ROMAN[number - 1]}`], core: false, grade: number }
+}
+
+const romanOrNumber = (value: string) => /^\d+$/.test(value) ? Number(value) : ROMAN.indexOf(value.toLowerCase()) + 1
+
+/**
+ * Grades a file belongs to, read from folders that start with a grade ("7 - IPA (KBC)", "8 IPA")
+ * and from "Kelas 7" / "Kelas VII" anywhere in the folder path or file name.
+ */
+export function entryGrades(entry: Pick<CatalogEntry, 'name' | 'path'>) {
+  const found = new Set<number>()
+  for (const segment of entry.path.split('/')) {
+    const match = segment.match(/^\s*([1-9]|1[0-2])\s*(?:[-–.:]\s*)?(?=\p{L}|\()/u)
+    if (match) found.add(Number(match[1]))
+  }
+  for (const match of `${entry.path} ${entry.name}`.matchAll(/(?<![\p{L}\p{N}])kelas[\s\p{P}]*(\d{1,2}|[ivx]+)(?![\p{L}\p{N}])/giu)) {
+    const number = romanOrNumber(match[1])
+    if (number >= 1 && number <= 12) found.add(number)
+  }
+  return found
 }
 
 export function parseQuery(input: string): ParsedQuery {
@@ -268,7 +299,7 @@ export function parseQuery(input: string): ParsedQuery {
     if (labelled) {
       found.push(labelled)
       i++
-    } else if (/^\d+$/.test(words[i])) found.push({ forms: [words[i]], core: false })
+    } else if (/^\d+$/.test(words[i])) found.push(bareNumberTerm(words[i]))
     else if (words[i].length > 1 && !STOPWORDS.has(words[i])) found.push({ forms: [words[i]], core: true })
   }
   const terms = found.length ? found : words.map((word) => ({ forms: [word], core: true }))
@@ -347,30 +378,48 @@ function buildPatterns(query: ParsedQuery) {
   return { phrase, terms }
 }
 
-/** Builds a scorer for file and folder names, which are available for every file without reading any text. */
+/**
+ * Builds a scorer for file and folder names, which are available for every file without reading any text.
+ * `conflict` marks a file that clearly belongs to another grade, semester, chapter, etc. than the one searched;
+ * such files are listed after every non-conflicting file.
+ */
 export function nameScorer(query: ParsedQuery) {
   const phrase = query.words.length > 1 ? new RegExp(START + wordSource(query.words.join(' ')) + END, 'iu') : null
   const terms = query.terms.map((term) => {
     const value = term.label === 'fase' ? '[a-f]' : '(?:\\d+|[ivx]+)'
     return {
+      grade: term.grade,
       regex: termRegex(term),
       // The same label with another value, e.g. "Kelas 8" when searching "kelas 7".
       other: term.label ? new RegExp(`${START}${term.label}[\\s\\p{P}]+${value}${END}`, 'iu') : null,
     }
   })
+  const hasGrade = terms.some((term) => term.grade)
   return (entry: Pick<CatalogEntry, 'name' | 'path'>) => {
+    const grades = hasGrade ? entryGrades(entry) : null
     let inName = 0
     let inPath = 0
+    let matched = 0
     let conflict = false
     for (const term of terms) {
       const name = term.regex.test(entry.name)
-      const path = term.regex.test(entry.path)
+      let path = term.regex.test(entry.path)
+      if (term.grade && grades?.size) {
+        // The file's folder or name says which grade it is for; that decides, not a stray number in the name.
+        if (grades.has(term.grade)) path = true
+        else {
+          conflict = true
+          continue
+        }
+      }
       if (name) inName++
       if (path) inPath++
-      if (!name && !path && term.other?.test(`${entry.path} ${entry.name}`)) conflict = true
+      if (name || path) matched++
+      else if (term.other?.test(`${entry.path} ${entry.name}`)) conflict = true
     }
-    const score = (120 * inName + 60 * inPath) / (terms.length || 1) + (phrase?.test(entry.name) ? 150 : 0) - (conflict ? 200 : 0)
-    return { score, allTerms: terms.length > 0 && terms.every((term) => term.regex.test(`${entry.path} ${entry.name}`)) }
+    const score = (120 * inName + 60 * inPath) / (terms.length || 1)
+      + (phrase?.test(entry.name) ? 150 : phrase?.test(entry.path) ? 100 : 0)
+    return { score, conflict, allTerms: terms.length > 0 && matched === terms.length }
   }
 }
 
