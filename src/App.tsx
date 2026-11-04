@@ -19,6 +19,7 @@ import { useAdExpenses } from './features/marketing/useAdExpenses';
 import CommissionBalance, { LedgerList } from './features/marketing/CommissionBalance';
 import { COMMISSION_START, staffLedger } from './features/marketing/commissionLedger';
 import AdminAuthGate from './features/marketing/AdminAuthGate';
+import EducationNews from './features/news/EducationNews';
 import { MetaPixelSettings as GlobalMetaPixelSettings } from './features/marketing/MetaPixel';
 import { useMetaTracking, MetaLandingPage, MetaPixelSettings, TrafficDashboard, ManageLeadsDashboard as ManageLeadsMeta, createTrackedLead, trackWhatsApp } from './metaSuite';
 
@@ -931,6 +932,8 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
                     </div>
                 </div>
             </section>
+
+            <EducationNews />
 
             <section className="py-16 px-4 bg-blue-50 border-t border-blue-100">
                 <div className="max-w-3xl mx-auto">
