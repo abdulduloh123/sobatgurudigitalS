@@ -1146,6 +1146,7 @@ function Dashboard({
                         <>
                             <div className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mb-2 mt-2 px-2">Keuangan & Performa</div>
                             <SidebarBtn icon={<LayoutDashboard />} label="Overview Bisnis" active={activeTab === 'overview'} onClick={() => { setActiveTab('overview'); setIsSidebarOpen(false); }} />
+                            <SidebarBtn icon={<PlusCircle />} label="Input Pemasukan" active={activeTab === 'input'} onClick={() => { setActiveTab('input'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<DollarSign />} label="Laporan Finansial" active={activeTab === 'all_sales'} onClick={() => { setActiveTab('all_sales'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Award />} label="Penggajian Komisi" active={activeTab === 'commission'} onClick={() => { setActiveTab('commission'); setIsSidebarOpen(false); }} />
                             <SidebarBtn icon={<Trophy />} label="Leaderboard Sales" active={activeTab === 'leaderboard'} onClick={() => { setActiveTab('leaderboard'); setIsSidebarOpen(false); }} />
@@ -1214,6 +1215,7 @@ function Dashboard({
                     {user.role === 'admin' && activeTab === 'overview' && (
                         <AdminOverview salesData={salesData} expensesData={[...expensesData, ...adExpenses]} leadsData={leadsData} />
                     )}
+                    {user.role === 'admin' && activeTab === 'input' && <StaffInputForm addSale={addSale} userName={user.name} setTab={setActiveTab} catalogData={catalogData} writeActivityLog={writeActivityLog} appSettings={appSettings} leadsData={leadsData} db={db} appId={appId} username={user.username} isAdmin={true} staffNames={usersData.filter(u => u.role === 'staff').map(u => u.name)} />}
                     {user.role === 'admin' && activeTab === 'all_sales' && (
                         <SalesTable
                             data={salesData}
@@ -3155,7 +3157,8 @@ function ManageStaff({ usersData, addStaffUser, deleteStaffUser, showConfirm }) 
 }
 
 // Overhauled Custom Multi-Dropdown & Negotiable Automated Pricing Form for WhatsApp Closing Flow
-function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityLog, appSettings, leadsData = [], db, appId, username }) {
+function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityLog, appSettings, leadsData = [], db, appId, username, isAdmin = false, staffNames = [] }) {
+    const [attributedTo, setAttributedTo] = useState('');
     const [leadId, setLeadId] = useState('');
     const [saleSource, setSaleSource] = useState('');
     const [saleCampaign, setSaleCampaign] = useState('');
@@ -3247,26 +3250,26 @@ function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityL
             notes: form.notes
         };
 
-        addSale({ ...payloadClosingan, leadId: leadId || null, source: leadId ? null : saleSource || null, campaign: !leadId && saleSource === 'Meta' ? saleCampaign || null : null, staffName: userName });
+        addSale({ ...payloadClosingan, leadId: leadId || null, source: leadId ? null : saleSource || null, campaign: !leadId && saleSource === 'Meta' ? saleCampaign || null : null, staffName: isAdmin && attributedTo ? attributedTo : userName });
         if (leadId && db) {
             try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leadsData', leadId), { status: 'konversi', saleAmount: Number(form.amount), convertedAt: new Date().toISOString(), convertedBy: username || userName }); }
             catch (err) { console.error('Gagal menautkan closing ke lead', err); }
         }
         if (writeActivityLog) {
-            await writeActivityLog('INPUT_CLOSING', `Staff ${userName} mencatat transaksi random/multi-item WA: ${hasilGabunganProduk} senilai Rp ${form.amount}`);
+            await writeActivityLog('INPUT_CLOSING', `${isAdmin ? 'Admin' : 'Staff'} ${userName} mencatat transaksi random/multi-item WA: ${hasilGabunganProduk} senilai Rp ${form.amount}`);
         }
 
         setForm({ date: new Date().toISOString().split('T')[0], customer: '', amount: '', notes: '' });
         setItems([{ id: Date.now(), jenjang: 'SD - Kelas 1', mapel: 'Matematika', customText: '' }]);
         setSaleSource('');
         setSaleCampaign('');
-        setTab('my_sales');
+        setTab(isAdmin ? 'all_sales' : 'my_sales');
     };
 
     return (
         <div className="max-w-3xl mx-auto animate-in fade-in pt-4 md:pt-0">
             <div className="mb-4">
-                <h1 className="text-2xl font-black text-gray-850">Lapor Closingan Fleksibel (WhatsApp Arus) 🎉</h1>
+                <h1 className="text-2xl font-black text-gray-850">{isAdmin ? 'Input Pemasukan (Admin) 💰' : 'Lapor Closingan Fleksibel (WhatsApp Arus) 🎉'}</h1>
                 <p className="text-xs text-gray-500 mt-1">Staf dapat menginput kombinasi kelas/mapel acak secara sekaligus sesuai kesepakatan chat WA kustomer.</p>
             </div>
 
@@ -3282,6 +3285,13 @@ function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityL
                     </div>
                 </div>
 
+                {isAdmin && <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">Atas nama staff (opsional — menentukan komisi)</label>
+                    <select value={attributedTo} onChange={e => setAttributedTo(e.target.value)} className="w-full border px-3 py-2 rounded-xl bg-white text-sm text-gray-855">
+                        <option value="">— Admin ({userName}), tanpa komisi staff —</option>
+                        {staffNames.map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                </div>}
                 <div>
                     <label className="block text-xs font-bold text-gray-600 mb-1">Berasal dari Lead (opsional — dikirim ke Meta sebagai Purchase)</label>
                     <select value={leadId} onChange={e => { const l = leadsData.find(x => x.id === e.target.value); setLeadId(e.target.value); if (l && !form.customer) setForm(p => ({ ...p, customer: l.name })); }} className="w-full border px-3 py-2 rounded-xl bg-white text-sm text-gray-855">
