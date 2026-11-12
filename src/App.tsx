@@ -2919,7 +2919,10 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
                 unpaidBonus += 50000 * Math.floor(amount / 1000000);
             }
         });
-        const totalUnpaid = unpaidCommission + unpaidBonus;
+        // Dari 1 Nov, tagihan staf = Saldo Komisi di atas (sudah dikurangi tombol Cairkan), supaya angka atas dan bawah sama.
+        const totalUnpaid = endDate >= COMMISSION_START
+            ? Math.round(staffLedger(name, salesData, payoutsData).balance)
+            : unpaidCommission + unpaidBonus;
 
         return { 
             name, 
@@ -3134,7 +3137,7 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
                                                 <div>{d.name}</div>
                                                 {d.totalUnpaid > 0 && (
                                                     <span className="text-[10px] bg-red-50 text-red-600 font-bold px-1.5 py-0.5 rounded flex items-center gap-1 w-fit mt-1 border border-red-200 animate-pulse">
-                                                        ⚠️ Belum Digaji: Rp {d.totalUnpaid.toLocaleString('id-ID')}
+                                                        ⚠️ Saldo belum dicairkan: Rp {d.totalUnpaid.toLocaleString('id-ID')}
                                                     </span>
                                                 )}
                                             </td>
@@ -3161,7 +3164,7 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
                                         {/* BARU: Banner Notifikasi Peringatan di HP */}
                                         {d.totalUnpaid > 0 && (
                                             <div className="bg-red-50 text-red-700 font-bold text-[11px] p-1.5 rounded-lg border border-red-200 flex items-center gap-1 animate-pulse">
-                                                ⚠️ Ada komisi belum digaji: Rp {d.totalUnpaid.toLocaleString('id-ID')}
+                                                ⚠️ Saldo belum dicairkan: Rp {d.totalUnpaid.toLocaleString('id-ID')}
                                             </div>
                                         )}
                                         <div className="grid grid-cols-2 gap-y-1 text-xs text-gray-600 font-medium">
