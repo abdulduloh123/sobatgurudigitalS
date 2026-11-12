@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { QUOTA_MESSAGE, isQuotaError, requireUser } from './_lib/clients.js'
+import { notifyLead } from './_lib/notify.js'
 import {
   MetaError, connect, getConnection, loginUrl, readAds, readCampaignNames, readPixels, readState, saveLeads, syncAds, validSignature, verifyToken,
 } from './_lib/meta.js'
@@ -65,6 +66,15 @@ export default async function handler(request: IncomingMessage, response: Server
   try {
     if (action === 'callback') return await callback(response, url)
     if (action === 'lead-webhook') return await webhook(request, response, url)
+    if (action === 'notify-lead' && request.method === 'POST') {
+      // Public on purpose (a visitor just sent the form); notifyLead only trusts the lead id and checks it server-side.
+      let leadId: unknown
+      try { leadId = (JSON.parse((await readBody(request)).toString()) as { leadId?: unknown }).leadId } catch { leadId = undefined }
+      const result = await notifyLead(leadId)
+      response.statusCode = result.status
+      response.setHeader('Content-Type', 'application/json')
+      return response.end(JSON.stringify(result.body))
+    }
 
     // requireUser answers through the helpers that are turned off above.
     const res = response as VercelResponse
