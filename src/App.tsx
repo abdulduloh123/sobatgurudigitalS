@@ -5,7 +5,7 @@ import {
     Heart, Edit, RefreshCw, GraduationCap, ZoomIn, Eye, Info,
     Lock, LayoutDashboard, LogOut, PlusCircle,
     DollarSign, TrendingUp, User, ShoppingBag, ArrowRight,
-    Users, Trash2, Key, Award, Search, Filter, BarChart3, PieChart,
+    Users, Trash2, Award, Search, Filter, BarChart3, PieChart,
     Download, ChevronDown, ChevronUp, Package, Trophy, Menu, Clock, Upload
 } from 'lucide-react';
 import { initializeApp, getApps } from 'firebase/app';
@@ -86,7 +86,7 @@ useEffect(() => {
                 const parsedUser = JSON.parse(cachedUser);
                 setCurrentUser(parsedUser);
                 if (!new URLSearchParams(window.location.search).get('lp')) setCurrentView('dashboard');
-            } catch (error) {
+            } catch {
                 localStorage.removeItem('sobatguru_session');
             }
         }
@@ -266,7 +266,7 @@ useEffect(() => {
             });
             showAlert("Closingan berhasil disimpan!", "Sukses", "success");
         }
-        catch (error) { showAlert("Gagal menyimpan data!", "Error", "error"); }
+        catch { showAlert("Gagal menyimpan data!", "Error", "error"); }
     };
 
     const updateSale = async (saleId, updatedData) => {
@@ -274,7 +274,7 @@ useEffect(() => {
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salesData', saleId), updatedData);
             showAlert("Data Diperbarui!", "Sukses", "success");
         }
-        catch (error) { showAlert("Gagal memperbarui!", "Error", "error"); }
+        catch { showAlert("Gagal memperbarui!", "Error", "error"); }
     };
 
     const deleteSale = async (saleId) => {
@@ -282,7 +282,7 @@ useEffect(() => {
             await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salesData', saleId));
             showAlert("Transaksi berhasil dihapus!", "Sukses", "success");
         }
-        catch (error) { showAlert("Gagal menghapus!", "Error", "error"); }
+        catch { showAlert("Gagal menghapus!", "Error", "error"); }
     };
 
     const addStaffUser = async (newUser) => {
@@ -318,12 +318,12 @@ useEffect(() => {
 
     const addProduct = async (newProduct) => {
         try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'catalogData'), newProduct); showAlert("Produk ditambahkan ke katalog!", "Sukses", "success"); }
-        catch (error) { showAlert("Gagal menambah produk!", "Error", "error"); }
+        catch { showAlert("Gagal menambah produk!", "Error", "error"); }
     };
 
     const updateProduct = async (prodId, updatedData) => {
         try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'catalogData', prodId), updatedData); showAlert("Katalog Diperbarui!", "Sukses", "success"); }
-        catch (error) { showAlert("Gagal memperbarui katalog!", "Error", "error"); }
+        catch { showAlert("Gagal memperbarui katalog!", "Error", "error"); }
     };
 
     const deleteProduct = async (prodId) => {
@@ -331,18 +331,18 @@ useEffect(() => {
             await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'catalogData', prodId));
             showAlert("Produk berhasil dihapus!", "Sukses", "success");
         }
-        catch (error) { showAlert("Gagal menghapus produk!", "Error", "error"); }
+        catch { showAlert("Gagal menghapus produk!", "Error", "error"); }
     };
 
     const addExpense = async (newExpense) => {
         if (!db) return showAlert("Sistem offline!", "Error", "error");
         try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'expensesData'), newExpense); showAlert("Pengeluaran berhasil ditambahkan!", "Sukses", "success"); }
-        catch (error) { showAlert("Gagal menyimpan pengeluaran!", "Error", "error"); }
+        catch { showAlert("Gagal menyimpan pengeluaran!", "Error", "error"); }
     };
 
     const updateExpense = async (expenseId, updatedData) => {
         try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'expensesData', expenseId), updatedData); showAlert("Pengeluaran diperbarui!", "Sukses", "success"); }
-        catch (error) { showAlert("Gagal memperbarui pengeluaran!", "Error", "error"); }
+        catch { showAlert("Gagal memperbarui pengeluaran!", "Error", "error"); }
     };
 
     const deleteExpense = async (expenseId) => {
@@ -350,7 +350,7 @@ useEffect(() => {
             await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'expensesData', expenseId));
             showAlert("Pengeluaran berhasil dihapus!", "Sukses", "success");
         }
-        catch (error) { showAlert("Gagal menghapus pengeluaran!", "Error", "error"); }
+        catch { showAlert("Gagal menghapus pengeluaran!", "Error", "error"); }
     };
 
     const addLead = async (leadData) => {
@@ -365,7 +365,7 @@ useEffect(() => {
                 slot: slotId
             });
             showAlert(`Pratinjau ${slotId} berhasil diperbarui!`, 'Sukses', 'success');
-        } catch (error) {
+        } catch {
             showAlert("Gagal memperbarui pratinjau!", "Error", "error");
         }
     };
@@ -1386,7 +1386,7 @@ function AdminOverview({ salesData, expensesData, leadsData = [] }) {
     const activeMonthsList = [];
     const startM = new Date(startDate);
     const endM = new Date(endDate);
-    let loopMonth = new Date(startM.getFullYear(), startM.getMonth(), 2);
+    const loopMonth = new Date(startM.getFullYear(), startM.getMonth(), 2);
     let protectionMonth = 0;
 
     while (loopMonth <= new Date(endM.getFullYear(), endM.getMonth() + 1, 1) && protectionMonth < 12) {
@@ -1781,7 +1781,7 @@ function SalesTable({
         setCurrentPage(1);
     }, [searchQuery, filterStaff, monthFilter, subTab, cashFlowPeriod]);
 
-    let filteredSales = data.filter(sale => {
+    const filteredSales = data.filter(sale => {
         const matchSearch = sale.customer.toLowerCase().includes(searchQuery.toLowerCase());
         const matchStaff = filterStaff ? sale.staffName === filterStaff : true;
         const matchMonth = monthFilter ? sale.date.startsWith(monthFilter) : true;
@@ -1850,8 +1850,8 @@ function SalesTable({
     // Meta spend rows are automatic: shown here for completeness, but they cannot be edited or deleted.
     const isAutoExpense = (exp) => String(exp.id).startsWith('meta_');
     const filteredExpenses = [...expensesData, ...adExpenses].sort((a, b) => b.date.localeCompare(a.date)).filter(exp => {
-        let matchCategory = expenseCategoryFilter ? exp.category === expenseCategoryFilter : true;
-        let matchSearch = expenseSearchQuery ? (exp.notes || '').toLowerCase().includes(expenseSearchQuery.toLowerCase()) : true;
+        const matchCategory = expenseCategoryFilter ? exp.category === expenseCategoryFilter : true;
+        const matchSearch = expenseSearchQuery ? (exp.notes || '').toLowerCase().includes(expenseSearchQuery.toLowerCase()) : true;
         return matchCategory && matchSearch;
     });
 
@@ -2644,7 +2644,7 @@ function BulkImportCatalog({ db, appId, writeActivityLog, showAlert }) {
                 chunks.push(previewData.slice(i, i + 400));
             }
 
-            for (let chunk of chunks) {
+            for (const chunk of chunks) {
                 const batch = writeBatch(db);
                 chunk.forEach(item => {
                     const docRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'catalogData'));
@@ -3721,7 +3721,7 @@ export function ManageAdminDrive({ db, appId, showAlert, showConfirm }) {
                 showAlert("Folder sukses ditempel ke aplikasi!", "Sukses", "success");
             }
             setForm({ name: '', url: '', description: '' });
-        } catch (error) {
+        } catch {
             showAlert("Gagal menyimpan data.", "Error", "error");
         }
     };
@@ -3730,7 +3730,7 @@ export function ManageAdminDrive({ db, appId, showAlert, showConfirm }) {
         try {
             await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'driveFilesData', id));
             showAlert("Folder telah dicabut.", "Sukses", "success");
-        } catch (error) {
+        } catch {
             showAlert("Gagal menghapus.", "Error", "error");
         }
     };
@@ -4040,7 +4040,7 @@ export function ManageBrandSettings({ appSettings, db, appId, showAlert }) {
                 mapelList: mapelList
             }, { merge: true });
             showAlert("Seluruh konfigurasi harga & daftar mata pelajaran berhasil disimpan!", "Sukses", "success");
-        } catch (error) {
+        } catch {
             showAlert("Gagal mengupdate konfigurasi!", "Error", "error");
         }
     };
