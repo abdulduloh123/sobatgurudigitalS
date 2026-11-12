@@ -1,4 +1,4 @@
-export type Sale = { id: string; date: string; amount: number; staffName?: string; leadId?: string | null; source?: string | null; campaign?: string | null };
+export type Sale = { id: string; date: string; amount: number; noCommission?: boolean; staffName?: string; leadId?: string | null; source?: string | null; campaign?: string | null };
 export type Lead = { id: string; date?: string; source?: string | null; campaign?: string | null };
 export type AdDay = { date: string; campaigns: { id: string; name: string; spend: number; impressions: number; clicks: number; chats?: number }[] };
 
@@ -35,8 +35,9 @@ const leadSource = (source?: string | null) => {
 export function saleCommissions(sales: Sale[]) {
     const perDay = new Map<string, number>();
     const key = (sale: Sale) => `${sale.staffName}_${sale.date}`;
-    for (const sale of sales) perDay.set(key(sale), (perDay.get(key(sale)) ?? 0) + sale.amount);
+    for (const sale of sales) if (!sale.noCommission) perDay.set(key(sale), (perDay.get(key(sale)) ?? 0) + sale.amount);
     return new Map(sales.map((sale) => {
+        if (sale.noCommission) return [sale.id, 0];
         const total = perDay.get(key(sale)) ?? 0;
         const bonus = total >= 1000000 ? 50000 * Math.floor(total / 1000000) : 0;
         return [sale.id, sale.amount * 0.1 + (total ? bonus * (sale.amount / total) : 0)];

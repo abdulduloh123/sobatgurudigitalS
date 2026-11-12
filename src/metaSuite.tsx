@@ -21,7 +21,7 @@ const cookie = (n) => (document.cookie.split('; ').find(r => r.startsWith(n + '=
 const normPhone = (p) => { const d = String(p || '').replace(/\D/g, ''); return d.startsWith('0') ? '62' + d.slice(1) : d; };
 const ss = { // sessionStorage aman untuk iframe/CSP
     get: (k) => { try { return sessionStorage.getItem(k); } catch { return null; } },
-    set: (k, v) => { try { sessionStorage.setItem(k, v); } catch { } },
+    set: (k, v) => { try { sessionStorage.setItem(k, v); } catch { /* storage diblokir: abaikan */ } },
 };
 const pct = (a, b) => (b ? ((a / b) * 100).toFixed(1) + '%' : '-');
 const classify = (h) => /facebook|fb\.com|fb\.me|messenger/.test(h) ? 'facebook' : /instagram/.test(h) ? 'instagram' : /google/.test(h) ? 'google' : /tiktok/.test(h) ? 'tiktok' : /youtube|youtu\.be/.test(h) ? 'youtube' : /wa\.me|whatsapp/.test(h) ? 'whatsapp' : h;
@@ -31,9 +31,9 @@ export function getAttribution() {
     const q = new URLSearchParams(location.search);
     const fbclid = q.get('fbclid');
     const hasNew = fbclid || q.get('utm_source') || q.get('ref') || q.get('lp');
-    let saved = null; try { saved = JSON.parse(ss.get('sg_attr')); } catch { }
+    let saved = null; try { saved = JSON.parse(ss.get('sg_attr')); } catch { /* data rusak: pakai atribusi baru */ }
     if (saved && !hasNew) return saved;
-    let host = ''; try { host = document.referrer ? new URL(document.referrer).hostname : ''; } catch { }
+    let host = ''; try { host = document.referrer ? new URL(document.referrer).hostname : ''; } catch { /* referrer tidak valid */ }
     if (host === location.hostname) host = '';
     const a = {
         source: (q.get('utm_source') || (fbclid ? 'facebook' : host ? classify(host) : 'direct')).toLowerCase(),
@@ -93,7 +93,9 @@ export async function createTrackedLead({ form, db = ctx.db, appId = ctx.appId }
         source: a.source, medium: a.medium, campaign: a.campaign, content: a.content, ref: a.ref, lp: a.lp, fbclid: a.fbclid,
         fbp: ids.fbp, fbc: ids.fbc, ua: navigator.userAgent, sid: ctx.sid || null, metaEventId: eventId, origin: 'website', url: location.href.slice(0, 500),
     };
-    await addDoc(col(db, appId, 'leadsData'), data);
+    const saved = await addDoc(col(db, appId, 'leadsData'), data);
+    // Notifikasi Telegram ke admin (diam-diam gagal jika belum dikonfigurasi).
+    fetch('/api/notify-lead', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: saved.id }), keepalive: true }).catch(() => { /* notifikasi opsional */ });
     const v = Number(ctx.cfg?.leadValue) || 0;
     track('Lead', { content_name: a.lp || 'sampel_gratis', ...(v ? { value: v, currency: 'IDR' } : {}) }, eventId);
     return data;
@@ -342,6 +344,13 @@ function LandingManager({ db, appId, lps, showAlert, showConfirm }) {
     );
 }
 
+const TrafficTable = ({ title, data }) => (
+    <Card title={title}><div className="overflow-x-auto"><table className="w-full text-xs text-left">
+        <thead className="text-gray-500 uppercase"><tr><th className="py-2">Nama</th><th>Sesi</th><th>Klik WA</th><th>Lead</th><th>Closing</th><th>Lead/Sesi</th></tr></thead>
+        <tbody>{data.slice(0, 15).map(r => <tr key={r.k} className="border-t"><td className="py-2 font-bold text-gray-800 max-w-[200px] truncate">{r.k}</td><td>{r.s}</td><td>{r.wa}</td><td>{r.lead}</td><td>{r.deal}</td><td>{pct(r.lead, r.s)}</td></tr>)}
+            {data.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-gray-400">Belum ada data.</td></tr>}</tbody></table></div></Card>
+);
+
 // ------------------------- TRAFFIC & SUMBER TRAFFIC (ADMIN + STAFF) -------------------------
 export function TrafficDashboard({ db, appId, user, leadsData, lps = [], showAlert }) {
     const isAdmin = user.role === 'admin';
@@ -350,10 +359,11 @@ export function TrafficDashboard({ db, appId, user, leadsData, lps = [], showAle
         const c = col(db, appId, 'trafficData');
         const q = isAdmin ? query(c, orderBy('startedAt', 'desc'), limit(5000)) : query(c, where('ref', '==', user.username), limit(5000));
         return onSnapshot(q, s => setRows(s.docs.map(d => d.data())), e => console.error('traffic', e));
-    }, []);
-    const since = Date.now() - range * 864e5;
-    const sess = useMemo(() => rows.filter(r => r.startedAt >= since), [rows, range]);
-    const leads = useMemo(() => leadsData.filter(l => new Date(l.date).getTime() >= since && (isAdmin || l.ref === user.username)), [leadsData, range]);
+    }, [db, appId, isAdmin, user.username]);
+    const [now] = useState(() => Date.now());
+    const since = now - range * 864e5;
+    const sess = useMemo(() => rows.filter(r => r.startedAt >= since), [rows, since]);
+    const leads = useMemo(() => leadsData.filter(l => new Date(l.date).getTime() >= since && (isAdmin || l.ref === user.username)), [leadsData, since, isAdmin, user.username]);
 
     const group = (fn) => {
         const m = {};
@@ -367,16 +377,10 @@ export function TrafficDashboard({ db, appId, user, leadsData, lps = [], showAle
     const byRef = group(x => x.ref);
     const total = { s: sess.length, wa: sess.filter(s => s.events?.some(e => e.n === 'Contact')).length, lead: leads.length, deal: leads.filter(l => l.status === 'konversi').length };
     const meta = { s: sess.filter(s => s.source === 'facebook' || s.source === 'instagram').length, lead: leads.filter(l => l.source === 'facebook' || l.source === 'instagram').length };
-    const days = Array.from({ length: Math.min(range, 30) }, (_, i) => new Date(Date.now() - (Math.min(range, 30) - 1 - i) * 864e5).toISOString().slice(0, 10));
+    const days = Array.from({ length: Math.min(range, 30) }, (_, i) => new Date(now - (Math.min(range, 30) - 1 - i) * 864e5).toISOString().slice(0, 10));
     const perDay = days.map(d => sess.filter(s => s.date === d).length); const maxDay = Math.max(1, ...perDay);
     const dev = { mobile: sess.filter(s => s.device === 'mobile').length, desktop: sess.filter(s => s.device === 'desktop').length };
 
-    const Table = ({ title, data }) => (
-        <Card title={title}><div className="overflow-x-auto"><table className="w-full text-xs text-left">
-            <thead className="text-gray-500 uppercase"><tr><th className="py-2">Nama</th><th>Sesi</th><th>Klik WA</th><th>Lead</th><th>Closing</th><th>Lead/Sesi</th></tr></thead>
-            <tbody>{data.slice(0, 15).map(r => <tr key={r.k} className="border-t"><td className="py-2 font-bold text-gray-800 max-w-[200px] truncate">{r.k}</td><td>{r.s}</td><td>{r.wa}</td><td>{r.lead}</td><td>{r.deal}</td><td>{pct(r.lead, r.s)}</td></tr>)}
-                {data.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-gray-400">Belum ada data.</td></tr>}</tbody></table></div></Card>
-    );
     const funnel = [['Sesi kunjungan', total.s], ['Klik WhatsApp', total.wa], ['Lead masuk', total.lead], ['Closing', total.deal]];
 
     return (
@@ -395,9 +399,9 @@ export function TrafficDashboard({ db, appId, user, leadsData, lps = [], showAle
                     <p className="text-[11px] text-gray-400">Perangkat: {dev.mobile} mobile · {dev.desktop} desktop</p></Card>
                 <Card title="Funnel">{funnel.map(([l, n], i) => <div key={l}><div className="flex justify-between text-xs font-semibold"><span>{l}</span><span>{n} {i > 0 && <span className="text-gray-400">({pct(n, funnel[i - 1][1])})</span>}</span></div><div className="h-2 bg-gray-100 rounded"><div className="h-2 bg-green-500 rounded" style={{ width: `${funnel[0][1] ? Math.min(100, (n / funnel[0][1]) * 100) : 0}%` }} /></div></div>)}</Card>
             </div>
-            <Table title="Sumber Traffic (source / medium)" data={bySource} />
-            <Table title="Kampanye (utm_campaign)" data={byCampaign} />
-            {isAdmin && <Table title="Performa per Staff (link referral)" data={byRef} />}
+            <TrafficTable title="Sumber Traffic (source / medium)" data={bySource} />
+            <TrafficTable title="Kampanye (utm_campaign)" data={byCampaign} />
+            {isAdmin && <TrafficTable title="Performa per Staff (link referral)" data={byRef} />}
             {!isAdmin && (
                 <Card title="Link Referral Saya">
                     <p className="text-xs text-gray-500">Bagikan link ini. Setiap kunjungan & lead otomatis diatribusikan ke Anda.</p>
@@ -412,15 +416,32 @@ export function TrafficDashboard({ db, appId, user, leadsData, lps = [], showAle
 // ------------------------- PUSAT LEADS (CRM) TERINTEGRASI META -------------------------
 // Pengganti ManageLeadsDashboard lama (props sama + user & appSettings).
 // Perubahan status ke "konversi" -> Cloud Function otomatis kirim event Purchase ke Meta (CAPI).
+const rp = (n) => 'Rp' + Number(n || 0).toLocaleString('id-ID');
+// Template pesan WhatsApp untuk CS; {nama} diganti nama lead.
+const waTemplates = (settings) => [
+    ['Sapaan awal', 'Halo Bpk/Ibu {nama}, saya melihat Anda mengunduh contoh Perangkat Administrasi Modul Deeplearning di Sobat Guru Digital. Apakah ada materi jenjang tertentu yang sedang dibutuhkan saat ini?'],
+    ['Tawarkan paket', `Halo Bpk/Ibu {nama}, untuk perangkat ajar lengkap kami ada paket per jenjang mulai ${rp(settings?.priceSD || 35000)} (SD), ${rp(settings?.priceSMP || 45000)} (SMP), ${rp(settings?.priceSMA || 55000)} (SMA), dan Paket Lengkap ${rp(settings?.priceLengkap || 150000)}. Jenjang dan mata pelajaran apa yang Bapak/Ibu butuhkan?`],
+    ['Follow-up', 'Halo Bpk/Ibu {nama}, kami ingin menanyakan kembali apakah contoh modul yang kemarin sudah sempat dicek? Kalau ada yang ingin ditanyakan, silakan balas pesan ini ya.'],
+    ['Pengingat pembayaran', 'Halo Bpk/Ibu {nama}, kami mengingatkan bahwa pesanan modul Bapak/Ibu masih menunggu pembayaran. Setelah pembayaran dikonfirmasi, file langsung kami kirim ke WhatsApp ini.'],
+];
+const DAY_MS = 864e5;
+
 export function ManageLeadsDashboard({ leadsData, showAlert, db, appId, user, appSettings }) {
     const isAdmin = user?.role === 'admin';
+    const [now] = useState(() => Date.now());
+    const [tplIndex, setTplIndex] = useState(0);
+    const templates = waTemplates(appSettings);
+    // Lead yang belum dichat lebih dari 1 hari dianggap perlu follow-up.
+    const lateDays = (l) => (!l.status || l.status === 'belum_dichat') && l.date ? Math.floor((now - new Date(l.date).getTime()) / DAY_MS) : 0;
+    const isLate = (l) => lateDays(l) >= 1;
     const [page, setPage] = useState(1); const [srcFilter, setSrcFilter] = useState('all'); const [scope, setScope] = useState(isAdmin ? 'all' : 'mine');
     const [deal, setDeal] = useState(null); const [amount, setAmount] = useState('');
     const per = 25;
     const base = leadsData.filter(l => scope === 'all' || !l.ref || l.ref === user?.username);
-    const rows = base.filter(l => srcFilter === 'all' || (srcFilter === 'meta' ? ['facebook', 'instagram'].includes(l.source) : l.source === srcFilter));
+    const rows = base.filter(l => srcFilter === 'all' || (srcFilter === 'late' ? isLate(l) : srcFilter === 'meta' ? ['facebook', 'instagram'].includes(l.source) : l.source === srcFilter))
+        .sort((a, b) => Number(isLate(b)) - Number(isLate(a)));
     const pages = Math.ceil(rows.length / per); const view = rows.slice((page - 1) * per, page * per);
-    const stat = { all: base.length, meta: base.filter(l => ['facebook', 'instagram'].includes(l.source)).length, deal: base.filter(l => l.status === 'konversi').length };
+    const stat = { all: base.length, meta: base.filter(l => ['facebook', 'instagram'].includes(l.source)).length, deal: base.filter(l => l.status === 'konversi').length, late: base.filter(isLate).length };
     useEffect(() => setPage(1), [srcFilter, scope]);
 
     const patch = async (id, data, msg = 'Status leads diperbarui!') => {
@@ -437,7 +458,7 @@ export function ManageLeadsDashboard({ leadsData, showAlert, db, appId, user, ap
         setDeal(null);
     };
     const chat = (lead) => {
-        const t = `Halo Bpk/Ibu ${lead.name}, saya melihat Anda mengunduh contoh Perangkat Administrasi Modul Deeplearning di Sobat Guru Digital. Apakah ada materi jenjang tertentu yang sedang dibutuhkan saat ini?`;
+        const t = templates[tplIndex][1].replace('{nama}', lead.name);
         window.open(`https://api.whatsapp.com/send?phone=${normPhone(lead.phone)}&text=${encodeURIComponent(t)}`, '_blank');
         if (!lead.status || lead.status === 'belum_dichat') patch(lead.id, { status: 'sudah_dichat', statusAt: new Date().toISOString(), handledBy: user?.username || null }, `Menghubungi ${lead.name} via WhatsApp`);
     };
@@ -448,7 +469,10 @@ export function ManageLeadsDashboard({ leadsData, showAlert, db, appId, user, ap
             <div><h2 className="text-2xl font-bold text-blue-950">Pusat Data Leads (CRM) × Meta</h2>
                 <p className="text-gray-500 text-sm">Lead dari landing page & Meta Lead Ads. Status “Konversi” dikirim balik ke Meta sebagai Purchase agar iklan belajar mencari pembeli, bukan sekadar pengisi form.</p></div>
             <div className="flex flex-wrap gap-2 items-center">
-                {[['all', `Semua (${stat.all})`], ['meta', `Meta (${stat.meta})`], ['whatsapp', 'WhatsApp'], ['direct', 'Direct']].map(([k, l]) => <button key={k} onClick={() => setSrcFilter(k)} className={`px-3 py-1.5 rounded-full text-xs font-bold border-0 cursor-pointer ${srcFilter === k ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>{l}</button>)}
+                {[['all', `Semua (${stat.all})`], ['late', `Perlu follow-up (${stat.late})`], ['meta', `Meta (${stat.meta})`], ['whatsapp', 'WhatsApp'], ['direct', 'Direct']].map(([k, l]) => <button key={k} onClick={() => setSrcFilter(k)} className={`px-3 py-1.5 rounded-full text-xs font-bold border-0 cursor-pointer ${srcFilter === k ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>{l}</button>)}
+                <select value={tplIndex} onChange={e => setTplIndex(Number(e.target.value))} className="text-xs font-bold border rounded-full px-3 py-1.5 bg-white" title="Template pesan WhatsApp">
+                    {templates.map(([name], i) => <option key={name} value={i}>Template: {name}</option>)}
+                </select>
                 {!isAdmin && <button onClick={() => setScope(scope === 'mine' ? 'all' : 'mine')} className="ml-auto text-xs font-bold text-blue-600 border-0 bg-transparent cursor-pointer">{scope === 'mine' ? 'Tampilkan milik saya + belum ditugaskan ✓' : 'Tampilkan semua'}</button>}
                 <span className="ml-auto text-xs text-gray-500">Konversi: <b>{pct(stat.deal, stat.all)}</b></span>
             </div>
@@ -459,7 +483,7 @@ export function ManageLeadsDashboard({ leadsData, showAlert, db, appId, user, ap
                     <tbody>
                         {view.map(l => { const b = metaBadge(l); return (
                             <tr key={l.id} className="border-b hover:bg-gray-50/50">
-                                <td className="px-4 py-3 text-xs whitespace-nowrap">{l.date?.slice(0, 10) || '-'}</td>
+                                <td className="px-4 py-3 text-xs whitespace-nowrap">{l.date?.slice(0, 10) || '-'}{isLate(l) && <div className="text-[10px] font-bold text-red-600">Telat {lateDays(l)} hari</div>}</td>
                                 <td className="px-4 py-3 font-bold text-gray-900">{l.name}{l.email && <div className="text-[10px] font-normal text-gray-400">{l.email}</div>}</td>
                                 <td className="px-4 py-3 font-mono text-xs">{l.phone}</td>
                                 <td className="px-4 py-3 text-xs"><b>{l.source ? `${l.source}/${l.medium || '-'}` : '-'}</b><div className="text-gray-400 max-w-[160px] truncate">{l.campaign || l.lp || ''}{l.ref ? ` · ref:${l.ref}` : ''}</div></td>
