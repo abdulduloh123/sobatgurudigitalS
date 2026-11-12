@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { FieldValue } from 'firebase-admin/firestore'
-import { firestore } from './_lib/clients'
+import { firestore } from './_lib/clients.js'
 
 const MAX_AGE_MS = 10 * 60_000
 const leads = () => firestore.collection(`artifacts/${process.env.FIREBASE_PROJECT_ID || 'sobatguru-digital'}/public/data/leadsData`)
