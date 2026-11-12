@@ -1055,14 +1055,14 @@ function LoginPage({ setView, onLogin, authenticateInternalUser, writeActivityLo
         setError('');
         try {
             const matchedUser = await authenticateInternalUser(username, password);
-            try { await writeActivityLog('LOGIN_SUCCESS', `User ${matchedUser.name} berhasil login.`, matchedUser); } catch (e) { }
+            try { await writeActivityLog('LOGIN_SUCCESS', `User ${matchedUser.name} berhasil login.`, matchedUser); } catch (e) { console.warn('Log login gagal ditulis', e); }
             onLogin(matchedUser);
         } catch (authError) {
             setError(authError instanceof Error ? authError.message : 'Gagal masuk. Periksa username dan password.');
             try {
                 const tempUser = { name: `Attempt: ${username}`, role: 'unknown', username, id: 'N/A' };
                 await writeActivityLog('LOGIN_FAILED', `Gagal login dengan username: ${username}`, tempUser);
-            } catch (e) { }
+            } catch (e) { console.warn('Log gagal login tidak tertulis', e); }
         } finally {
             setBusy(false);
         }
@@ -3184,12 +3184,12 @@ function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityL
         })();
     }, [saleSource, campaignNames]);
 
-    const [form, setForm] = useState({
+    const [form, setForm] = useState(() => ({
         date: new Date().toISOString().split('T')[0],
         customer: '',
         amount: '',
         notes: ''
-    });
+    }));
 
     const [items, setItems] = useState([
         { id: Date.now(), jenjang: 'SD - Kelas 1', mapel: 'Matematika', customText: '' }
