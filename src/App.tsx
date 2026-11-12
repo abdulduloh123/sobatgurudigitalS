@@ -11,15 +11,19 @@ import {
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, setDoc, writeBatch } from 'firebase/firestore';
-import WaRotatorAdmin from './features/marketing/WaRotatorAdmin';
-import AdsPerformance from './features/marketing/AdsPerformance';
-import BusinessPulse from './features/marketing/BusinessPulse';
 import { SALE_SOURCES, AD_COST_CATEGORY } from './features/marketing/adsReport';
 import { useAdExpenses } from './features/marketing/useAdExpenses';
 import CommissionBalance, { LedgerList } from './features/marketing/CommissionBalance';
+import { downloadCsv, addMonthsIso } from './lib/csv';
 import { COMMISSION_START, staffLedger } from './features/marketing/commissionLedger';
 import AdminAuthGate from './features/marketing/AdminAuthGate';
-import EducationNews from './features/news/EducationNews';
+
+// Dasbor berat dimuat hanya saat dibuka, supaya halaman publik cepat tampil.
+const WaRotatorAdmin = React.lazy(() => import('./features/marketing/WaRotatorAdmin'));
+const AdsPerformance = React.lazy(() => import('./features/marketing/AdsPerformance'));
+const BusinessPulse = React.lazy(() => import('./features/marketing/BusinessPulse'));
+const EducationNews = React.lazy(() => import('./features/news/EducationNews'));
+const LazyFallback = <div className="py-8 text-center text-sm text-gray-400">Memuat...</div>;
 import { MetaPixelSettings as GlobalMetaPixelSettings } from './features/marketing/MetaPixel';
 import { useMetaTracking, MetaLandingPage, MetaPixelSettings, TrafficDashboard, ManageLeadsDashboard as ManageLeadsMeta, createTrackedLead, trackWhatsApp } from './metaSuite';
 
@@ -334,9 +338,15 @@ useEffect(() => {
         catch { showAlert("Gagal menghapus produk!", "Error", "error"); }
     };
 
-    const addExpense = async (newExpense) => {
+    // repeatMonths > 0 also records the same expense on the same day of each of the next months.
+    const addExpense = async (newExpense, repeatMonths = 0) => {
         if (!db) return showAlert("Sistem offline!", "Error", "error");
-        try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'expensesData'), newExpense); showAlert("Pengeluaran berhasil ditambahkan!", "Sukses", "success"); }
+        try {
+            const extra = Math.max(0, Math.min(24, Math.floor(Number(repeatMonths) || 0)));
+            const list = collection(db, 'artifacts', appId, 'public', 'data', 'expensesData');
+            for (let i = 0; i <= extra; i++) await addDoc(list, i === 0 ? newExpense : { ...newExpense, date: addMonthsIso(newExpense.date, i), recurring: true });
+            showAlert(extra ? `Pengeluaran dicatat untuk ${extra + 1} bulan!` : "Pengeluaran berhasil ditambahkan!", "Sukses", "success");
+        }
         catch { showAlert("Gagal menyimpan pengeluaran!", "Error", "error"); }
     };
 
@@ -933,7 +943,7 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
                 </div>
             </section>
 
-            <EducationNews />
+            <React.Suspense fallback={LazyFallback}><EducationNews /></React.Suspense>
 
             <section className="py-16 px-4 bg-blue-50 border-t border-blue-100">
                 <div className="max-w-3xl mx-auto">
@@ -1213,9 +1223,9 @@ function Dashboard({
                         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">Biaya Meta gagal dimuat, jadi laba bisa terlihat terlalu tinggi: {adExpensesError}</div>
                     )}
                     {user.role === 'admin' && activeTab === 'overview' && (
-                        <AdminOverview salesData={salesData} expensesData={[...expensesData, ...adExpenses]} leadsData={leadsData} />
+                        <AdminOverview salesData={salesData} expensesData={[...expensesData, ...adExpenses]} leadsData={leadsData} appSettings={appSettings} db={db} appId={appId} showAlert={showAlert} />
                     )}
-                    {user.role === 'admin' && activeTab === 'input' && <StaffInputForm addSale={addSale} userName={user.name} setTab={setActiveTab} catalogData={catalogData} writeActivityLog={writeActivityLog} appSettings={appSettings} leadsData={leadsData} db={db} appId={appId} username={user.username} isAdmin={true} staffNames={usersData.filter(u => u.role === 'staff').map(u => u.name)} />}
+                    {user.role === 'admin' && activeTab === 'input' && <StaffInputForm salesData={salesData} addSale={addSale} userName={user.name} setTab={setActiveTab} catalogData={catalogData} writeActivityLog={writeActivityLog} appSettings={appSettings} leadsData={leadsData} db={db} appId={appId} username={user.username} isAdmin={true} staffNames={usersData.filter(u => u.role === 'staff').map(u => u.name)} />}
                     {user.role === 'admin' && activeTab === 'all_sales' && (
                         <SalesTable
                             data={salesData}
@@ -1257,13 +1267,13 @@ function Dashboard({
     <ManageLeadsMeta leadsData={leadsData} showAlert={showAlert} db={db} appId={appId} user={user} appSettings={appSettings} />
                     )}
                     {user.role === 'admin' && activeTab === 'ads_performance' && (
-                        <AdsPerformance auth={auth} sales={salesData} leads={leadsData} />
+                        <React.Suspense fallback={LazyFallback}><AdsPerformance auth={auth} sales={salesData} leads={leadsData} /></React.Suspense>
                     )}
                     {user.role === 'admin' && activeTab === 'meta_settings' && (
                         <MetaPixelSettings db={db} appId={appId} cfg={metaCfg} lps={metaLps || []} showAlert={showAlert} showConfirm={showConfirm} />
                     )}
                     {user.role === 'admin' && activeTab === 'wa_rotator' && (
-                        <AdminAuthGate><WaRotatorAdmin /></AdminAuthGate>
+                        <AdminAuthGate><React.Suspense fallback={LazyFallback}><WaRotatorAdmin /></React.Suspense></AdminAuthGate>
                     )}
                     {user.role === 'admin' && activeTab === 'global_pixel' && (
                         <AdminAuthGate><GlobalMetaPixelSettings /></AdminAuthGate>
@@ -1286,7 +1296,7 @@ function Dashboard({
                     {user.role === 'staff' && activeTab === 'my_ledger' && (
                         <StaffSalesLedger mySalesData={salesData.filter(s => s.staffName === user.name)} />
                     )}
-                    {user.role === 'staff' && activeTab === 'input' && <StaffInputForm addSale={addSale} userName={user.name} setTab={setActiveTab} catalogData={catalogData} writeActivityLog={writeActivityLog} appSettings={appSettings} leadsData={leadsData} db={db} appId={appId} username={user.username} />}
+                    {user.role === 'staff' && activeTab === 'input' && <StaffInputForm salesData={salesData} addSale={addSale} userName={user.name} setTab={setActiveTab} catalogData={catalogData} writeActivityLog={writeActivityLog} appSettings={appSettings} leadsData={leadsData} db={db} appId={appId} username={user.username} />}
                     {user.role === 'staff' && activeTab === 'my_sales' && <SalesTable data={salesData.filter(s => s.staffName === user.name)} title="Riwayat Penjualan Saya" showFilters={false} isAdmin={false} />}
                     {user.role === 'staff' && activeTab === 'my_commissions' && (
                         <StaffCommissions staffName={user.name} salesData={salesData} payoutsData={payoutsData} />
@@ -1308,7 +1318,57 @@ function SidebarBtn({ icon, label, active, onClick }) {
     );
 }
 
-function AdminOverview({ salesData, expensesData, leadsData = [] }) {
+// Target omzet bulan berjalan: tersimpan di pengaturan global, dibandingkan dengan omzet bulan ini dan bulan lalu.
+function MonthlyTarget({ salesData, appSettings, db, appId, showAlert }) {
+    const [months] = useState(() => {
+        const now = new Date();
+        const key = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        return { current: key(now), previous: key(new Date(now.getFullYear(), now.getMonth() - 1, 1)) };
+    });
+    const [draft, setDraft] = useState('');
+    const [editing, setEditing] = useState(false);
+    const sum = (month) => salesData.filter(sale => sale.date?.startsWith(month)).reduce((total, sale) => total + sale.amount, 0);
+    const current = sum(months.current);
+    const previous = sum(months.previous);
+    const target = Number(appSettings?.targetOmzet) || 0;
+    const percent = target ? Math.min(100, Math.round((current / target) * 100)) : 0;
+    const change = previous ? Math.round(((current - previous) / previous) * 100) : null;
+
+    const save = async () => {
+        try {
+            await setDoc(doc(collection(db, 'artifacts', appId, 'public', 'data', 'settingsData'), 'global_config'), { targetOmzet: Number(draft) || 0 }, { merge: true });
+            setEditing(false);
+            showAlert('Target omzet bulanan disimpan!', 'Sukses', 'success');
+        } catch { showAlert('Gagal menyimpan target!', 'Error', 'error'); }
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                    <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">Target Omzet Bulan Ini</p>
+                    <p className="text-lg font-black text-blue-950">Rp {current.toLocaleString('id-ID')}{target ? <span className="text-sm font-bold text-gray-400"> / Rp {target.toLocaleString('id-ID')}</span> : null}</p>
+                </div>
+                {editing ? (
+                    <div className="flex gap-2">
+                        <input type="number" autoFocus placeholder="Target (Rp)" value={draft} onChange={e => setDraft(e.target.value)} className="border px-3 py-1.5 rounded-lg text-sm w-40 bg-white" />
+                        <button onClick={save} className="bg-blue-600 text-white text-xs font-bold px-3 rounded-lg">Simpan</button>
+                        <button onClick={() => setEditing(false)} className="bg-gray-200 text-xs font-bold px-3 rounded-lg">Batal</button>
+                    </div>
+                ) : (
+                    <button onClick={() => { setDraft(String(target || '')); setEditing(true); }} className="text-xs font-bold text-blue-600 border rounded-lg px-3 py-1.5">{target ? 'Ubah target' : 'Atur target'}</button>
+                )}
+            </div>
+            {target > 0 && <div className="h-3 bg-gray-100 rounded-full overflow-hidden"><div className={`h-full rounded-full ${percent >= 100 ? 'bg-green-500' : 'bg-blue-500'}`} style={{ width: `${percent}%` }} /></div>}
+            <p className="text-[11px] text-gray-500">
+                {target ? `${percent}% dari target. ` : 'Belum ada target bulan ini. '}
+                Bulan lalu: Rp {previous.toLocaleString('id-ID')}{change !== null && <b className={change >= 0 ? 'text-green-600' : 'text-rose-600'}> ({change >= 0 ? '+' : ''}{change}% dibanding bulan lalu)</b>}
+            </p>
+        </div>
+    );
+}
+
+function AdminOverview({ salesData, expensesData, leadsData = [], appSettings, db, appId, showAlert }) {
     const [startDate, setStartDate] = useState(() => {
         const d = new Date();
         d.setDate(d.getDate() - 30);
@@ -1509,7 +1569,7 @@ function AdminOverview({ salesData, expensesData, leadsData = [] }) {
                 </div>
             </div>
 
-            <BusinessPulse auth={auth} sales={salesData} leads={leadsData} from={startDate} to={endDate} />
+            <React.Suspense fallback={LazyFallback}><BusinessPulse auth={auth} sales={salesData} leads={leadsData} from={startDate} to={endDate} /></React.Suspense>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:shadow-md transition animate-in">
@@ -1556,6 +1616,8 @@ function AdminOverview({ salesData, expensesData, leadsData = [] }) {
                     <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shadow-inner"><TrendingUp size={28} /></div>
                 </div>
             </div>
+
+            <MonthlyTarget salesData={salesData} appSettings={appSettings} db={db} appId={appId} showAlert={showAlert} />
 
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
@@ -1802,12 +1864,13 @@ function SalesTable({
     const [editExpenseForm, setEditExpenseForm] = useState({ date: '', category: 'Operasional', amount: 0, notes: '' });
 
     // Expense input form state
-    const [newExpenseForm, setNewExpenseForm] = useState({
+    const [newExpenseForm, setNewExpenseForm] = useState(() => ({
         date: new Date().toISOString().split('T')[0],
         category: 'Operasional',
         amount: '',
         notes: ''
-    });
+    }));
+    const [repeatMonths, setRepeatMonths] = useState('0');
 
     const handleAddExpenseSubmit = (e) => {
         e.preventDefault();
@@ -1817,7 +1880,8 @@ function SalesTable({
             category: newExpenseForm.category,
             amount: Number(newExpenseForm.amount),
             notes: newExpenseForm.notes
-        });
+        }, Number(repeatMonths) || 0);
+        setRepeatMonths('0');
         setNewExpenseForm({
             date: new Date().toISOString().split('T')[0],
             category: 'Operasional',
@@ -1926,6 +1990,19 @@ function SalesTable({
         return { month, label: `${monthName} ${year}`, revenue, expenses: totalExp, profit };
     });
 
+    const exportCurrentTab = () => {
+        if (subTab === 'sales') {
+            downloadCsv('pemasukan.csv', [['Tanggal', 'Staff', 'Kustomer', 'Produk', 'Nominal', 'Sumber', 'Kampanye', 'Tanpa komisi', 'Catatan'],
+                ...filteredSales.map(s => [s.date, s.staffName, s.customer, s.product, s.amount, s.source, s.campaign, s.noCommission ? 'Ya' : '', s.notes])]);
+        } else if (subTab === 'expenses') {
+            downloadCsv('pengeluaran.csv', [['Tanggal', 'Kategori', 'Keterangan', 'Nominal'],
+                ...filteredExpenses.map(e => [e.date, e.category, e.notes, e.amount])]);
+        } else {
+            const rows = cashFlowPeriod === 'monthly' ? monthlyCashFlow.map(r => [r.label, r.revenue, r.expenses, r.profit]) : dailyCashFlow.map(r => [r.date, r.revenue, r.expenses, r.profit]);
+            downloadCsv(cashFlowPeriod === 'monthly' ? 'arus-kas-bulanan.csv' : 'arus-kas-harian.csv', [[cashFlowPeriod === 'monthly' ? 'Bulan' : 'Tanggal', 'Pemasukan', 'Pengeluaran', 'Laba'], ...rows]);
+        }
+    };
+
     const startEdit = (sale) => {
         setEditingId(sale.id);
         setEditForm({ date: sale.date, customer: sale.customer, product: sale.product, notes: sale.notes || '', amount: sale.amount });
@@ -2006,7 +2083,11 @@ function SalesTable({
                     <p className="text-gray-500 text-sm mt-1">Kelola dan pantau seluruh arus keuangan masuk & keluar secara transparan.</p>
                 </div>
 
-                <div className="bg-gray-150 p-1.5 rounded-xl flex flex-wrap gap-1 w-full xl:w-auto shadow-inner">
+                {isAdmin && <div className="flex gap-2 print:hidden">
+                    <button onClick={exportCurrentTab} className="text-xs font-bold py-2 px-3 rounded-lg border bg-white text-blue-900 hover:bg-blue-50">Ekspor CSV</button>
+                    <button onClick={() => window.print()} className="text-xs font-bold py-2 px-3 rounded-lg border bg-white text-blue-900 hover:bg-blue-50">Cetak / PDF</button>
+                </div>}
+                <div className="bg-gray-150 p-1.5 rounded-xl flex flex-wrap gap-1 w-full xl:w-auto shadow-inner print:hidden">
                     <button
                         onClick={() => setSubTab('cash_flow')}
                         className={`flex-1 xl:flex-none text-xs font-bold py-2 px-4 rounded-lg transition-all ${subTab === 'cash_flow' ? 'bg-white text-blue-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
@@ -2317,6 +2398,11 @@ function SalesTable({
                                         onChange={e => setNewExpenseForm({ ...newExpenseForm, amount: e.target.value })}
                                         className="w-full border px-3 py-2 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-gray-800"
                                     />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="block text-xs font-bold text-gray-600">Ulangi tiap bulan (jumlah bulan tambahan)</label>
+                                    <input type="number" min="0" max="24" value={repeatMonths} onChange={e => setRepeatMonths(e.target.value)} className="w-full border px-3 py-2 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-gray-800" />
+                                    <p className="text-[10px] text-gray-400">Untuk biaya tetap (hosting, domain, langganan). 0 = hanya sekali. Tiap bulan tetap bisa diedit sendiri.</p>
                                 </div>
                                 <div className="space-y-1">
                                     <label className="block text-xs font-bold text-gray-600">Deskripsi / Keterangan</label>
@@ -3165,12 +3251,27 @@ function ManageStaff({ usersData, addStaffUser, deleteStaffUser, showConfirm }) 
 }
 
 // Overhauled Custom Multi-Dropdown & Negotiable Automated Pricing Form for WhatsApp Closing Flow
-function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityLog, appSettings, leadsData = [], db, appId, username, isAdmin = false, staffNames = [] }) {
+function StaffInputForm({ salesData = [], addSale, userName, setTab, catalogData, writeActivityLog, appSettings, leadsData = [], db, appId, username, isAdmin = false, staffNames = [] }) {
     const [attributedTo, setAttributedTo] = useState('');
     const [leadId, setLeadId] = useState('');
     const [saleSource, setSaleSource] = useState('');
     const [saleCampaign, setSaleCampaign] = useState('');
     const [campaignNames, setCampaignNames] = useState(null);
+    const [today] = useState(() => new Date().toISOString().split('T')[0]);
+
+    // Pelanggan lama: saran nama dari penjualan sebelumnya + info pembelian terakhir.
+    const pastCustomers = React.useMemo(() => {
+        const latest = new Map();
+        for (const sale of salesData) {
+            const name = (sale.customer || '').trim();
+            if (!name) continue;
+            const known = latest.get(name.toLowerCase());
+            if (!known || sale.date > known.date) latest.set(name.toLowerCase(), sale);
+        }
+        return latest;
+    }, [salesData]);
+    // Estimasi komisi hari ini untuk staf (10% + Rp50.000 per kelipatan Rp1 juta omzet harian).
+    const myTodayTotal = salesData.filter(sale => sale.staffName === userName && sale.date === today && !sale.noCommission).reduce((total, sale) => total + sale.amount, 0);
 
     useEffect(() => {
         if (saleSource !== 'Meta' || campaignNames !== null) return;
@@ -3289,10 +3390,34 @@ function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityL
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-gray-600 mb-1">Nama Kustomer / Instansi Sekolah</label>
-                        <input required type="text" placeholder="Masukkan nama guru / asal sekolah" value={form.customer} onChange={e => setForm({ ...form, customer: e.target.value })} className="w-full border px-3 py-2 rounded-xl bg-white text-sm text-gray-855" />
+                        <input required type="text" list="pelanggan-lama" placeholder="Masukkan nama guru / asal sekolah" value={form.customer} onChange={e => setForm({ ...form, customer: e.target.value })} className="w-full border px-3 py-2 rounded-xl bg-white text-sm text-gray-855" />
                     </div>
                 </div>
 
+                <datalist id="pelanggan-lama">
+                    {[...pastCustomers.values()].slice(0, 300).map(sale => <option key={sale.id} value={sale.customer} />)}
+                </datalist>
+                {pastCustomers.get(form.customer.trim().toLowerCase()) && (() => {
+                    const last = pastCustomers.get(form.customer.trim().toLowerCase());
+                    return (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 space-y-2">
+                            <p><b>Pelanggan lama.</b> Pembelian terakhir {last.date}: {last.product} · Rp {Number(last.amount).toLocaleString('id-ID')}</p>
+                            {!leadId && saleSource !== 'Pelanggan lama' && <button type="button" onClick={() => setSaleSource('Pelanggan lama')} className="bg-amber-500 hover:bg-amber-600 text-white font-bold px-3 py-1 rounded-lg">Tandai sumber: Pelanggan lama</button>}
+                        </div>
+                    );
+                })()}
+                {!isAdmin && (() => {
+                    const projected = myTodayTotal + (Number(form.amount) || 0);
+                    const commission = (total) => total * 0.1 + (total >= 1000000 ? 50000 * Math.floor(total / 1000000) : 0);
+                    const toNext = 1000000 - (projected % 1000000);
+                    return (
+                        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-xs text-green-900 space-y-1">
+                            <p>Omzet kamu hari ini: <b>Rp {myTodayTotal.toLocaleString('id-ID')}</b> · Estimasi komisi: <b>Rp {commission(myTodayTotal).toLocaleString('id-ID')}</b></p>
+                            {Number(form.amount) > 0 && <p>Dengan closing ini: omzet Rp {projected.toLocaleString('id-ID')} · komisi Rp {commission(projected).toLocaleString('id-ID')}</p>}
+                            <p>Tinggal <b>Rp {toNext.toLocaleString('id-ID')}</b> lagi untuk bonus Rp50.000 berikutnya.</p>
+                        </div>
+                    );
+                })()}
                 {isAdmin && <div>
                     <label className="block text-xs font-bold text-gray-600 mb-1">Atas nama staff (opsional — menentukan komisi)</label>
                     <select value={attributedTo} onChange={e => setAttributedTo(e.target.value)} className="w-full border px-3 py-2 rounded-xl bg-white text-sm text-gray-855">

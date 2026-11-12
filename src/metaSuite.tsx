@@ -414,15 +414,32 @@ export function TrafficDashboard({ db, appId, user, leadsData, lps = [], showAle
 // ------------------------- PUSAT LEADS (CRM) TERINTEGRASI META -------------------------
 // Pengganti ManageLeadsDashboard lama (props sama + user & appSettings).
 // Perubahan status ke "konversi" -> Cloud Function otomatis kirim event Purchase ke Meta (CAPI).
+const rp = (n) => 'Rp' + Number(n || 0).toLocaleString('id-ID');
+// Template pesan WhatsApp untuk CS; {nama} diganti nama lead.
+const waTemplates = (settings) => [
+    ['Sapaan awal', 'Halo Bpk/Ibu {nama}, saya melihat Anda mengunduh contoh Perangkat Administrasi Modul Deeplearning di Sobat Guru Digital. Apakah ada materi jenjang tertentu yang sedang dibutuhkan saat ini?'],
+    ['Tawarkan paket', `Halo Bpk/Ibu {nama}, untuk perangkat ajar lengkap kami ada paket per jenjang mulai ${rp(settings?.priceSD || 35000)} (SD), ${rp(settings?.priceSMP || 45000)} (SMP), ${rp(settings?.priceSMA || 55000)} (SMA), dan Paket Lengkap ${rp(settings?.priceLengkap || 150000)}. Jenjang dan mata pelajaran apa yang Bapak/Ibu butuhkan?`],
+    ['Follow-up', 'Halo Bpk/Ibu {nama}, kami ingin menanyakan kembali apakah contoh modul yang kemarin sudah sempat dicek? Kalau ada yang ingin ditanyakan, silakan balas pesan ini ya.'],
+    ['Pengingat pembayaran', 'Halo Bpk/Ibu {nama}, kami mengingatkan bahwa pesanan modul Bapak/Ibu masih menunggu pembayaran. Setelah pembayaran dikonfirmasi, file langsung kami kirim ke WhatsApp ini.'],
+];
+const DAY_MS = 864e5;
+
 export function ManageLeadsDashboard({ leadsData, showAlert, db, appId, user, appSettings }) {
     const isAdmin = user?.role === 'admin';
+    const [now] = useState(() => Date.now());
+    const [tplIndex, setTplIndex] = useState(0);
+    const templates = waTemplates(appSettings);
+    // Lead yang belum dichat lebih dari 1 hari dianggap perlu follow-up.
+    const lateDays = (l) => (!l.status || l.status === 'belum_dichat') && l.date ? Math.floor((now - new Date(l.date).getTime()) / DAY_MS) : 0;
+    const isLate = (l) => lateDays(l) >= 1;
     const [page, setPage] = useState(1); const [srcFilter, setSrcFilter] = useState('all'); const [scope, setScope] = useState(isAdmin ? 'all' : 'mine');
     const [deal, setDeal] = useState(null); const [amount, setAmount] = useState('');
     const per = 25;
     const base = leadsData.filter(l => scope === 'all' || !l.ref || l.ref === user?.username);
-    const rows = base.filter(l => srcFilter === 'all' || (srcFilter === 'meta' ? ['facebook', 'instagram'].includes(l.source) : l.source === srcFilter));
+    const rows = base.filter(l => srcFilter === 'all' || (srcFilter === 'late' ? isLate(l) : srcFilter === 'meta' ? ['facebook', 'instagram'].includes(l.source) : l.source === srcFilter))
+        .sort((a, b) => Number(isLate(b)) - Number(isLate(a)));
     const pages = Math.ceil(rows.length / per); const view = rows.slice((page - 1) * per, page * per);
-    const stat = { all: base.length, meta: base.filter(l => ['facebook', 'instagram'].includes(l.source)).length, deal: base.filter(l => l.status === 'konversi').length };
+    const stat = { all: base.length, meta: base.filter(l => ['facebook', 'instagram'].includes(l.source)).length, deal: base.filter(l => l.status === 'konversi').length, late: base.filter(isLate).length };
     useEffect(() => setPage(1), [srcFilter, scope]);
 
     const patch = async (id, data, msg = 'Status leads diperbarui!') => {
@@ -439,7 +456,7 @@ export function ManageLeadsDashboard({ leadsData, showAlert, db, appId, user, ap
         setDeal(null);
     };
     const chat = (lead) => {
-        const t = `Halo Bpk/Ibu ${lead.name}, saya melihat Anda mengunduh contoh Perangkat Administrasi Modul Deeplearning di Sobat Guru Digital. Apakah ada materi jenjang tertentu yang sedang dibutuhkan saat ini?`;
+        const t = templates[tplIndex][1].replace('{nama}', lead.name);
         window.open(`https://api.whatsapp.com/send?phone=${normPhone(lead.phone)}&text=${encodeURIComponent(t)}`, '_blank');
         if (!lead.status || lead.status === 'belum_dichat') patch(lead.id, { status: 'sudah_dichat', statusAt: new Date().toISOString(), handledBy: user?.username || null }, `Menghubungi ${lead.name} via WhatsApp`);
     };
@@ -450,7 +467,10 @@ export function ManageLeadsDashboard({ leadsData, showAlert, db, appId, user, ap
             <div><h2 className="text-2xl font-bold text-blue-950">Pusat Data Leads (CRM) × Meta</h2>
                 <p className="text-gray-500 text-sm">Lead dari landing page & Meta Lead Ads. Status “Konversi” dikirim balik ke Meta sebagai Purchase agar iklan belajar mencari pembeli, bukan sekadar pengisi form.</p></div>
             <div className="flex flex-wrap gap-2 items-center">
-                {[['all', `Semua (${stat.all})`], ['meta', `Meta (${stat.meta})`], ['whatsapp', 'WhatsApp'], ['direct', 'Direct']].map(([k, l]) => <button key={k} onClick={() => setSrcFilter(k)} className={`px-3 py-1.5 rounded-full text-xs font-bold border-0 cursor-pointer ${srcFilter === k ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>{l}</button>)}
+                {[['all', `Semua (${stat.all})`], ['late', `Perlu follow-up (${stat.late})`], ['meta', `Meta (${stat.meta})`], ['whatsapp', 'WhatsApp'], ['direct', 'Direct']].map(([k, l]) => <button key={k} onClick={() => setSrcFilter(k)} className={`px-3 py-1.5 rounded-full text-xs font-bold border-0 cursor-pointer ${srcFilter === k ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>{l}</button>)}
+                <select value={tplIndex} onChange={e => setTplIndex(Number(e.target.value))} className="text-xs font-bold border rounded-full px-3 py-1.5 bg-white" title="Template pesan WhatsApp">
+                    {templates.map(([name], i) => <option key={name} value={i}>Template: {name}</option>)}
+                </select>
                 {!isAdmin && <button onClick={() => setScope(scope === 'mine' ? 'all' : 'mine')} className="ml-auto text-xs font-bold text-blue-600 border-0 bg-transparent cursor-pointer">{scope === 'mine' ? 'Tampilkan milik saya + belum ditugaskan ✓' : 'Tampilkan semua'}</button>}
                 <span className="ml-auto text-xs text-gray-500">Konversi: <b>{pct(stat.deal, stat.all)}</b></span>
             </div>
@@ -461,7 +481,7 @@ export function ManageLeadsDashboard({ leadsData, showAlert, db, appId, user, ap
                     <tbody>
                         {view.map(l => { const b = metaBadge(l); return (
                             <tr key={l.id} className="border-b hover:bg-gray-50/50">
-                                <td className="px-4 py-3 text-xs whitespace-nowrap">{l.date?.slice(0, 10) || '-'}</td>
+                                <td className="px-4 py-3 text-xs whitespace-nowrap">{l.date?.slice(0, 10) || '-'}{isLate(l) && <div className="text-[10px] font-bold text-red-600">Telat {lateDays(l)} hari</div>}</td>
                                 <td className="px-4 py-3 font-bold text-gray-900">{l.name}{l.email && <div className="text-[10px] font-normal text-gray-400">{l.email}</div>}</td>
                                 <td className="px-4 py-3 font-mono text-xs">{l.phone}</td>
                                 <td className="px-4 py-3 text-xs"><b>{l.source ? `${l.source}/${l.medium || '-'}` : '-'}</b><div className="text-gray-400 max-w-[160px] truncate">{l.campaign || l.lp || ''}{l.ref ? ` · ref:${l.ref}` : ''}</div></td>
