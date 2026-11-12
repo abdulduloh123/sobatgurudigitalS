@@ -23,6 +23,7 @@ const WaRotatorAdmin = React.lazy(() => import('./features/marketing/WaRotatorAd
 const AdsPerformance = React.lazy(() => import('./features/marketing/AdsPerformance'));
 const BusinessPulse = React.lazy(() => import('./features/marketing/BusinessPulse'));
 const EducationNews = React.lazy(() => import('./features/news/EducationNews'));
+const Testimonials = React.lazy(() => import('./features/testimonials/Testimonials'));
 const LazyFallback = <div className="py-8 text-center text-sm text-gray-400">Memuat...</div>;
 import { MetaPixelSettings as GlobalMetaPixelSettings } from './features/marketing/MetaPixel';
 import { useMetaTracking, MetaLandingPage, MetaPixelSettings, TrafficDashboard, ManageLeadsDashboard as ManageLeadsMeta, createTrackedLead, trackWhatsApp } from './metaSuite';
@@ -943,6 +944,7 @@ function LandingPage({ setView, catalogData, addLead, previewsData, showAlert })
                 </div>
             </section>
 
+            <React.Suspense fallback={null}><Testimonials /></React.Suspense>
             <React.Suspense fallback={LazyFallback}><EducationNews /></React.Suspense>
 
             <section className="py-16 px-4 bg-blue-50 border-t border-blue-100">

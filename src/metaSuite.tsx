@@ -93,7 +93,9 @@ export async function createTrackedLead({ form, db = ctx.db, appId = ctx.appId }
         source: a.source, medium: a.medium, campaign: a.campaign, content: a.content, ref: a.ref, lp: a.lp, fbclid: a.fbclid,
         fbp: ids.fbp, fbc: ids.fbc, ua: navigator.userAgent, sid: ctx.sid || null, metaEventId: eventId, origin: 'website', url: location.href.slice(0, 500),
     };
-    await addDoc(col(db, appId, 'leadsData'), data);
+    const saved = await addDoc(col(db, appId, 'leadsData'), data);
+    // Notifikasi Telegram ke admin (diam-diam gagal jika belum dikonfigurasi).
+    fetch('/api/notify-lead', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: saved.id }), keepalive: true }).catch(() => { /* notifikasi opsional */ });
     const v = Number(ctx.cfg?.leadValue) || 0;
     track('Lead', { content_name: a.lp || 'sampel_gratis', ...(v ? { value: v, currency: 'IDR' } : {}) }, eventId);
     return data;
