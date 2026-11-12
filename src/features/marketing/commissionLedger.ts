@@ -1,9 +1,12 @@
 export const COMMISSION_START = '2026-11-01';
 
-type Sale = { date: string; amount: number; staffName?: string; paymentStatus?: string };
+type Sale = { date: string; amount: number; staffName?: string; paymentStatus?: string; noCommission?: boolean };
 type Payout = { staffName?: string; amount: number; payoutDate?: string; note?: string; ledger?: boolean };
 
 export type LedgerEntry = { date: string; label: string; amount: number; balance: number };
+
+/** Sales an admin enters for the business itself carry noCommission: no 10% and no daily bonus. */
+export const earnsCommission = (sale: { noCommission?: boolean }) => !sale.noCommission;
 
 function dayBonus(total: number) {
     return total >= 1000000 ? 50000 * Math.floor(total / 1000000) : 0;
@@ -17,7 +20,7 @@ function commissionByDay(sales: Sale[]) {
 
 /** Balance = what was unpaid before the start date, plus commission earned since, minus balance payouts. Nothing is stored. */
 export function staffLedger(staffName: string, allSales: Sale[], allPayouts: Payout[]) {
-    const sales = allSales.filter((sale) => sale.staffName === staffName);
+    const sales = allSales.filter((sale) => sale.staffName === staffName && earnsCommission(sale));
     const before = sales.filter((sale) => sale.date < COMMISSION_START && sale.paymentStatus !== 'paid');
     const opening = commissionByDay(before).reduce((total, day) => total + day.amount, 0);
     const days = commissionByDay(sales.filter((sale) => sale.date >= COMMISSION_START));

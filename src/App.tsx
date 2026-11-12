@@ -1329,7 +1329,7 @@ function AdminOverview({ salesData, expensesData, leadsData = [] }) {
     let totalCommissionCost = 0;
     let totalBonusCost = 0;
 
-    filteredSales.forEach(sale => {
+    filteredSales.filter(sale => !sale.noCommission).forEach(sale => {
         totalCommissionCost += sale.amount * 0.10;
         const dayKey = `${sale.staffName}_${sale.date}`;
         if (!staffDailySales[dayKey]) staffDailySales[dayKey] = 0;
@@ -1363,7 +1363,7 @@ function AdminOverview({ salesData, expensesData, leadsData = [] }) {
         const revenue = filteredSales.filter(s => s.date === date).reduce((acc, curr) => acc + curr.amount, 0);
         const opExpenses = filteredExpenses.filter(e => e.date === date).reduce((acc, curr) => acc + curr.amount, 0);
 
-        const salesOnDay = filteredSales.filter(s => s.date === date);
+        const salesOnDay = filteredSales.filter(s => s.date === date && !s.noCommission);
         let dayCommission = 0;
         let dayBonus = 0;
         const staffSalesOnDay = {};
@@ -1404,7 +1404,7 @@ function AdminOverview({ salesData, expensesData, leadsData = [] }) {
         const revenue = filteredSales.filter(s => s.date.startsWith(month)).reduce((acc, curr) => acc + curr.amount, 0);
         const opExpenses = filteredExpenses.filter(e => e.date.startsWith(month)).reduce((acc, curr) => acc + curr.amount, 0);
 
-        const salesInMonth = filteredSales.filter(s => s.date.startsWith(month));
+        const salesInMonth = filteredSales.filter(s => s.date.startsWith(month) && !s.noCommission);
         let monthCommission = 0;
         let monthBonus = 0;
         const staffDailySalesInMonth = {};
@@ -1847,14 +1847,16 @@ function SalesTable({
 
 
     // Expenses Filtering
-    const filteredExpenses = expensesData.filter(exp => {
+    // Meta spend rows are automatic: shown here for completeness, but they cannot be edited or deleted.
+    const isAutoExpense = (exp) => String(exp.id).startsWith('meta_');
+    const filteredExpenses = [...expensesData, ...adExpenses].sort((a, b) => b.date.localeCompare(a.date)).filter(exp => {
         let matchCategory = expenseCategoryFilter ? exp.category === expenseCategoryFilter : true;
         let matchSearch = expenseSearchQuery ? (exp.notes || '').toLowerCase().includes(expenseSearchQuery.toLowerCase()) : true;
         return matchCategory && matchSearch;
     });
 
     const getCommissionExpensesForDate = (dateString) => {
-        const salesOnDay = data.filter(s => s.date === dateString);
+        const salesOnDay = data.filter(s => s.date === dateString && !s.noCommission);
         let commission = 0;
         let dayBonus = 0;
         const staffSales = {};
@@ -1872,7 +1874,7 @@ function SalesTable({
     };
 
     const getCommissionExpensesForMonth = (monthString) => {
-        const salesInMonth = data.filter(s => s.date.startsWith(monthString));
+        const salesInMonth = data.filter(s => s.date.startsWith(monthString) && !s.noCommission);
         let commission = 0;
         let monthBonus = 0;
         const staffDailySales = {};
@@ -2360,6 +2362,7 @@ function SalesTable({
                                     <option value="Marketing">Marketing</option>
                                     <option value="Gaji">Gaji</option>
                                     <option value="Lain-lain">Lain-lain</option>
+                                    <option value={AD_COST_CATEGORY}>{AD_COST_CATEGORY}</option>
                                 </select>
                             </div>
 
@@ -2417,8 +2420,10 @@ function SalesTable({
                                                                 <td className="px-4 py-3 text-gray-805 text-xs max-w-[200px] truncate" title={exp.notes}>{exp.notes || '-'}</td>
                                                                 <td className="px-4 py-3 text-right font-bold text-red-600">Rp {exp.amount.toLocaleString('id-ID')}</td>
                                                                 <td className="px-4 py-3 text-center space-x-2 whitespace-nowrap">
+                                                                    {isAutoExpense(exp) ? <span className="text-[10px] font-bold text-gray-400">Otomatis</span> : <>
                                                                     <button onClick={() => startEditExpense(exp)} className="text-blue-600 hover:text-blue-800 inline-block" title="Edit Pengeluaran"><Edit size={14} /></button>
                                                                     <button onClick={() => showConfirm("Yakin hapus pengeluaran ini?", () => deleteExpense(exp.id))} className="text-red-500 hover:text-red-700 inline-block" title="Hapus Pengeluaran"><Trash2 size={14} /></button>
+                                                                    </>}
                                                                 </td>
                                                             </>
                                                         )}
@@ -2465,8 +2470,10 @@ function SalesTable({
                                                                 <p className="text-[10px] text-gray-400 mt-1 font-semibold">{exp.date}</p>
                                                             </div>
                                                             <div className="space-x-3">
+                                                                {isAutoExpense(exp) ? <span className="text-[10px] font-bold text-gray-400">Otomatis</span> : <>
                                                                 <button onClick={() => startEditExpense(exp)} className="text-blue-600 hover:text-blue-800" title="Edit"><Edit size={14} /></button>
                                                                 <button onClick={() => showConfirm("Yakin hapus pengeluaran ini?", () => deleteExpense(exp.id))} className="text-red-500 hover:text-red-700" title="Hapus"><Trash2 size={14} /></button>
+                                                                </>}
                                                             </div>
                                                         </div>
                                                         <div className="grid grid-cols-2 gap-y-1 text-xs font-medium text-gray-600">
@@ -2787,7 +2794,7 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
     const [startDate, setStartDate] = useState(firstDay);
     const [endDate, setEndDate] = useState(lastDay);
 
-    const filteredData = salesData.filter(s => s.date >= startDate && s.date <= endDate);
+    const filteredData = salesData.filter(s => s.date >= startDate && s.date <= endDate && !s.noCommission);
     const staffStats = {};
 
     filteredData.forEach(sale => {
@@ -2809,7 +2816,7 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
         });
 
         // SISTEM BARU: Menghitung akumulasi komisi yang BELUM DIBAYAR (Pending/Unpaid) pada periode ini
-        const staffSalesAll = salesData.filter(s => s.staffName === name && s.date >= startDate && s.date <= endDate);
+        const staffSalesAll = salesData.filter(s => s.staffName === name && s.date >= startDate && s.date <= endDate && !s.noCommission);
         const unpaidSales = staffSalesAll.filter(s => s.paymentStatus !== 'paid');
         const unpaidCommission = unpaidSales.reduce((acc, curr) => acc + (curr.amount * 0.10), 0);
         
@@ -2852,7 +2859,8 @@ function CommissionReport({ salesData, payoutsData, usersData, payStaffCommissio
         const staffSales = salesData.filter(s =>
             s.staffName === selectedStaff &&
             s.date >= payStart &&
-            s.date <= payEnd
+            s.date <= payEnd &&
+            !s.noCommission
         );
 
         const unpaidSales = staffSales.filter(s => s.paymentStatus !== 'paid');
@@ -3250,7 +3258,7 @@ function StaffInputForm({ addSale, userName, setTab, catalogData, writeActivityL
             notes: form.notes
         };
 
-        addSale({ ...payloadClosingan, leadId: leadId || null, source: leadId ? null : saleSource || null, campaign: !leadId && saleSource === 'Meta' ? saleCampaign || null : null, staffName: isAdmin && attributedTo ? attributedTo : userName });
+        addSale({ ...payloadClosingan, leadId: leadId || null, source: leadId ? null : saleSource || null, campaign: !leadId && saleSource === 'Meta' ? saleCampaign || null : null, staffName: isAdmin && attributedTo ? attributedTo : userName, noCommission: isAdmin && !attributedTo });
         if (leadId && db) {
             try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leadsData', leadId), { status: 'konversi', saleAmount: Number(form.amount), convertedAt: new Date().toISOString(), convertedBy: username || userName }); }
             catch (err) { console.error('Gagal menautkan closing ke lead', err); }
